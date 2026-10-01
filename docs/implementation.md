@@ -241,7 +241,7 @@ Reject invalid transitions in application logic and show recoverable feedback.
 
 ### Source and loading
 
-`data/unspsc_catalogue.csv` is the golden record. It holds 13,326 commodity rows derived from UNSPSC v26.0801, limited to 17 segments relevant to refinery and process-plant MRO purchasing (12, 13, 15, 20, 22, 23, 24, 26, 27, 30, 31, 32, 39, 40, 41, 46, 47). The commodity title is the item name the buyer sees; it plays the role of a SKU name. The original workbook is not part of the repository, and corrections are made in the CSV directly.
+`data/unspsc_catalogue.csv` is the golden record. It holds 13,326 commodity rows derived from UNSPSC v26.0801 (source: https://www.ungm.org/Public/UNSPSC), limited to 17 segments relevant to refinery and process-plant MRO purchasing (12, 13, 15, 20, 22, 23, 24, 26, 27, 30, 31, 32, 39, 40, 41, 46, 47). The commodity title is the item name the buyer sees; it plays the role of a SKU name. The original workbook is not part of the repository, and corrections are made in the CSV directly.
 
 Columns: `commodity_code`, `commodity_title`, `class_title`, `family_title`, `segment_title`, `definition` (present for about half the rows), and `default_unit`. `default_unit` is a keyword-rule suggestion and not source data, so it is always shown as a suggestion the buyer can change. The catalogue carries no synonym or acronym data.
 
@@ -311,7 +311,7 @@ Do not create a blank or fabricated RFQ. Ask the buyer to describe items, quanti
 
 ## 9. Workflow B — Manage My RFQs
 
-Provide a session-only list showing RFQ name/date, line-item count, status/review flags, and available actions. MVP actions are **View**, **Download**, and **Select for evaluation**. Do not add persistence, collaboration, approvals, or complex lifecycle features. Show an empty state directing the buyer to the RFQ builder when no RFQs are saved.
+Provide a session-only list, newest first, with summary tiles (RFQs saved, line items, latest) and one rich row per RFQ: name, created date and time, reference, line count with a preview of the first items, status chips (Saved, how many entries were fixed or accepted, Selected), and the actions below. **View** expands the full item table in place. MVP actions are **View**, **PDF download**, and **Select for evaluation** (which selects the RFQ and opens Evaluate Quotations). Do not add persistence, collaboration, approvals, or complex lifecycle features. Show an empty state directing the buyer to the RFQ builder when no RFQs are saved.
 
 ## 10. Workflow C — Evaluate Quotations
 
@@ -326,6 +326,10 @@ Provide a session-only list showing RFQ name/date, line-item count, status/revie
 7. Buyer selects one version per vendor.
 8. Deterministic code calculates eligible item comparisons and indicative sourcing scenarios.
 9. Show comparisons, the Review summary, and the analyst panel; enable analysis PDF download.
+
+### Guided steps
+
+Evaluate Quotations is presented as five steps on one page, with a step bar (done, active, upcoming), Back and Next buttons, and progress kept in session state: **Select RFQ**, **Upload**, **Review**, **Compare**, **Ask**. Each step unlocks when the one before it is complete: Upload needs a selected RFQ, Review needs at least one parsed quotation, Compare needs every quotation validated or its flags resolved, and Ask needs a computed analysis. A locked step shows a one-line reason instead of its content. Arriving from Manage's **Select for evaluation** lands on Upload with the RFQ already chosen. The step bar is a reusable component (`app/ui/stepper.py`), built in Phases 4 and 5 with the steps themselves.
 
 ### Supported formats
 
@@ -417,6 +421,14 @@ Model IDs, generation settings, and per-session call limits live in `src/config.
 7. **Generation settings.** Low temperature and minimal thinking for extraction and matching. Newer Gemini models may perform best at their default temperature, so check the selected model's guidance before pinning a value.
 8. **Bounded retry.** One repair attempt for invalid output, sending the validation or verifier error messages back in the retry prompt. A truncated response (`finish_reason` of max tokens) is a failure, never a partial parse.
 9. **Versioned prompts** under `src/prompts/`, one file per call. Log prompt version, model ID, and latency; never log document contents.
+
+### Live behaviour notes (G1 and G2, verified against Gemini)
+
+- Model IDs come from `.env` (`GEMINI_MODEL_LITE`, `GEMINI_MODEL_EXTRACT`), never from code. Check availability first: older families can be closed to new keys (the 2.5 models were, when this was built), so the API's model list is the source of truth. Gemini 3.x models are called with default temperature and minimal thinking.
+- Calls use schema-constrained JSON validated with Pydantic. The SDK's own retries are disabled; the client retries a 5xx once and never retries a 429, which surfaces as a "busy, try again in a minute" message with the buyer's text kept.
+- The client forces IPv4. On some networks the IPv6 route to Google hangs until the timeout, which looks like a frozen app.
+- G2 runs in batches of 30 items. A 35-line messy list took 2 calls and about 12 seconds. A confident G2 pick is applied automatically only when its word-match score is within `MATCH_PICK_TOLERANCE` of the best candidate; otherwise it is shown first as a suggestion in the picker (an observed failure: "Anchor bolts" chosen for "hex bolts").
+- Automated tests never reach the live API (`tests/conftest.py` blanks the key); live checks are run by hand with a hard call cap.
 
 ### G1 — RFQ parse
 
@@ -613,7 +625,7 @@ class ReviewFlag(BaseModel):
     resolution: Literal["accepted", "edited", "excluded"] | None = None
 ```
 
-The **Review summary** is a panel shown in two places: above the RFQ table (Generate an RFQ) and at the top of the results (Evaluate Quotations), with a per-vendor view. It shows counts by severity, lists each flag with its message and a link to the affected row, and offers Accept, Edit, or Exclude where applicable. Accepted flags stay listed as accepted. The panel appears only when at least one flag exists, never as an empty placeholder. The analysis PDF includes the summary. State lives in `st.session_state`.
+The **Review summary** is a panel shown in two places: above the RFQ table (Generate an RFQ) and at the top of the results (Evaluate Quotations), with a per-vendor view. It shows counts by severity, lists each flag with its message and a link to the affected row, and offers Accept, Edit, or Exclude where applicable. Entries never disappear: each starts as **Fix** (red, must be edited) or **Review** (orange, can be accepted), becomes **Reviewed** (green) when the buyer clicks Accept, and **Fixed** (mint green) when an edit in the table makes the problem go away. The state lives in `RFQ.review_log` and is recalculated after every edit. The panel is not shown as an empty placeholder: with no flags at all it shows a short "All clear" card. The analysis PDF includes the summary. State lives in `st.session_state`.
 
 ### RFQ verifiers
 
@@ -722,9 +734,15 @@ Use a neutral enterprise visual language without hard-coding an external brand i
 - **Typography:** clean sans-serif hierarchy; readable labels; compact data tables; clear headings.
 - **Components:** consistent spacing, restrained radius, compact status badges, visible focus states.
 
-Top-level navigation: **Generate an RFQ**, **Manage My RFQs**, **Evaluate Quotations**. Each tab should make the current workflow state visible and provide clear empty, loading, incomplete, success, and error states.
+Top-level navigation: **Generate an RFQ**, **Manage My RFQs**, **Evaluate Quotations**, shown as pill tabs. Navigation is app-controlled (a keyed segmented control, `app/ui/nav.py`) rather than `st.tabs`, so buttons in the flow can switch screens: after saving, **View in Manage RFQs**; in Manage, **Select for evaluation** selects the RFQ and opens Evaluate. Only the active screen renders. Clicking the active pill keeps the current screen. Each screen should make the current workflow state visible and provide clear empty, loading, incomplete, success, and error states.
 
-**RFQ builder:** chat composer, extraction/catalogue progress, clarification area, editable item table, Review summary panel above the table, review indicators, save and PDF-download actions.
+Row order in the RFQ table is decided once, when the RFQ is built (review lines first), and stored as `display_order`. Editing a line never moves it, so the buyer can keep working down the list.
+
+**RFQ builder:** before a request, a centred chat-style box (Enter sends). After it, a split layout: the request and a box for a new request on the left, the Review summary (or an "All clear" card) on the right, and **Your RFQ** full width below. Unclear requests get a guidance card with an example and a "Use this example" button. While the RFQ is built, an animated progress card shows the real stages (reading, matching, choosing, preparing).
+
+**Your RFQ table:** the heading carries the line count and review count, the RFQ name, and **Save RFQ**, which stays disabled and says why ("Resolve 12 to save") until every flag is resolved or accepted; after saving it becomes **Download PDF** and **New RFQ**. Lines that need review are listed first and confirmed lines last. All editing (quantity, unit, catalogue item, remove) is in the table; the Review summary lists every flagged line with its state and offers Accept where acceptance is allowed. Choosing a catalogue item confirms the line, closes the picker, and shows a short confirmation; the picker lists the current item and offers only the other close matches. While an RFQ is being built, the screen switches to the split layout: the request stays visible and read-only in the input box's place on the left, and a progress card the size of the Review summary shows the real stages on the right. Rows are colour-coded: red (must fix), amber (needs a decision), blue (a suggestion was applied: close match or suggested unit), green (confirmed), and the specific field in error gets a red outline (a suggested unit gets a dashed teal one). The catalogue picker is a wide popover with a large search box that opens on suggested close matches for the line's own wording.
+
+The shell is a slim top bar (logo and name on the left) with the three tabs directly beneath it.
 
 **Manage RFQs:** session-only list, view/download/select actions, and empty state.
 

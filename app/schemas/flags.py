@@ -5,8 +5,19 @@ from pydantic import BaseModel, Field
 from app.ids import new_id
 
 Severity = Literal["block", "review", "info"]
-Scope = Literal["rfq_item", "file", "vendor", "quote_line", "match", "analysis"]
+Scope = Literal["rfq", "rfq_item", "file", "vendor", "quote_line", "match", "analysis"]
 Resolution = Literal["accepted", "edited", "excluded"]
+
+
+class ReviewEntry(BaseModel):
+    """One line of the Review summary. It stays listed and changes state: open, reviewed (accepted), fixed (edited)."""
+
+    key: str                       # "<scope_id>:<code>"
+    code: str
+    scope_id: str
+    message: str
+    blocking: bool = False         # must be fixed by editing; cannot be accepted
+    status: Literal["open", "reviewed", "fixed"] = "open"
 
 
 class ReviewFlag(BaseModel):

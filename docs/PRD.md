@@ -57,7 +57,7 @@ A maintenance, electrical, instrumentation, or operations engineer may provide t
 
 ## 3. User Journeys
 
-The MVP is organized into three tabs: **Generate an RFQ**, **Manage My RFQs**, and **Evaluate Quotations**. The primary workflow is to create an RFQ, retrieve it within the same session, and use it as the baseline for quotation evaluation. The MVP is session-only: there is no database or login, and refreshing the browser clears RFQs, uploads, and analysis (see section 4).
+The MVP is organized into three tabs: **Generate an RFQ**, **Manage My RFQs**, and **Evaluate Quotations**. The primary workflow is to create an RFQ, retrieve it within the same session, and use it as the baseline for quotation evaluation. Buttons in the flow move between the tabs (for example, after saving an RFQ, or when selecting an RFQ for evaluation). The MVP is session-only: there is no database or login, and refreshing the browser clears RFQs, uploads, and analysis (see section 4).
 
 ### 3.1 Generate an RFQ
 
@@ -72,7 +72,7 @@ The MVP is organized into three tabs: **Generate an RFQ**, **Manage My RFQs**, a
 
 2. **Parse and identify requested items**
    - AI interprets the request and splits it into distinct items, each with the buyer's own wording, a quantity, and a unit where stated. Only stated values are extracted.
-   - The system searches the item catalogue (a trimmed UNSPSC commodity list for refinery and process-plant MRO; the commodity title is the item name) and shortlists candidates. A clear match is selected by the system; when the match is not clear, AI chooses among the shortlisted candidates only. It must not create catalogue records.
+   - The system searches the item catalogue (a trimmed UNSPSC commodity list for refinery and process-plant MRO; the commodity title is the item name; see section 4) and shortlists candidates. A clear match is selected by the system; when the match is not clear, AI chooses among the shortlisted candidates only. It must not create catalogue records.
    - The buyer's original wording is kept alongside the selected catalogue item so the mapping can be reviewed.
 
 3. **Resolve anything missing or ambiguous**
@@ -84,7 +84,7 @@ The MVP is organized into three tabs: **Generate an RFQ**, **Manage My RFQs**, a
    - Once the items are sufficiently resolved, the system displays an editable table with three columns: **Item**, **Quantity**, and **Unit**.
    - The Item cell shows the selected catalogue item; its UNSPSC identifier may be shown as supporting information without adding more primary table columns.
    - Selecting Edit on the Item field opens a searchable catalogue picker populated from the same catalogue. Quantity and unit are editable, and rows can be removed.
-   - A **Review summary** appears above the table only when something needs attention (unmatched items, missing quantities, suggested units, possible duplicates) and lets the buyer resolve or acknowledge each one. It is not shown when there is nothing to review.
+   - A **Review summary** beside the request lists everything that needs attention (unmatched items, missing quantities, unrecognised units, possible duplicates). Each entry changes state as the buyer works: Fix or Review while open, Reviewed once the buyer accepts it, and Fixed once an edit in the table resolves it; entries stay listed so progress is visible. Lines needing review are listed first in the table and highlighted, and the Save button states how many items remain.
    - The table must distinguish an absent value from a numeric zero, must require a positive quantity on every line before saving, and must not silently overwrite the user's input.
    - Units come from a small standard list (see section 4).
 
@@ -124,6 +124,8 @@ The MVP is organized into three tabs: **Generate an RFQ**, **Manage My RFQs**, a
 **Objective:** Enable the procurement manager to upload vendor quotations for a selected RFQ, receive a transparent item-level and vendor-level comparison with an indicative lowest-cost multi-vendor combination, and explore it by asking questions in plain language.
 
 #### Journey
+
+Evaluate Quotations is presented as guided steps (Select the RFQ, Upload, Review, Compare, Ask the analyst); a step unlocks once the one before it is complete.
 
 1. **Select the RFQ**
    - The user opens Evaluate Quotations and chooses one of the saved RFQs.
@@ -194,7 +196,7 @@ These are intentional product decisions for the MVP, not unfinished features.
 - AI uses the Google Gemini API, with cost kept low by using code first and AI only where it adds value.
 
 **Item catalogue**
-- A trimmed UNSPSC commodity list for refinery and process-plant MRO. The commodity title serves as the product name; the RFQ carries only an item, a quantity, and a unit.
+- The product database is the United Nations Standard Products and Services Code (UNSPSC), published at [https://www.ungm.org/Public/UNSPSC](https://www.ungm.org/Public/UNSPSC). The product uses a trimmed copy limited to the segments relevant to refinery and process-plant MRO purchasing. The commodity title serves as the product name; the RFQ carries only an item, a quantity, and a unit.
 
 **Units**
 - The standard unit list is: Nos, Set, Pair, Kit, Kg, Tonne, Metre, Litre, Box, Pack, Roll, and Drum.
