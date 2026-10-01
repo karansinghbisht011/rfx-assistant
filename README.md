@@ -2,6 +2,8 @@
 
 A lightweight procurement assistant for MRO (maintenance, repair and operations) purchasing in refinery and process-plant settings. It helps a buyer go from a plain-language request to a structured RFQ, and from a stack of vendor quotations to a clear, checked comparison and a proposed purchase.
 
+**Live demo:** https://rfx-assistant1.streamlit.app/ (use the sample data below; a free app may take a few seconds to wake up).
+
 Built with Python, Streamlit and the Google Gemini API. It is **session-only by design**: there is no database and no login, and refreshing the browser clears everything.
 
 ## What it does
@@ -66,6 +68,20 @@ pytest
 ```
 
 The tests never call the live Gemini API: a scripted stand-in is used.
+
+## Deploying
+
+The app runs on Streamlit Community Cloud. Connect the repository, set the main file to `app/main.py` and Python to 3.12, and put the configuration in the app's secrets:
+
+```
+GEMINI_API_KEY = "your key"
+GEMINI_MODEL_LITE = "gemini-3.5-flash-lite"
+GEMINI_MODEL_EXTRACT = "gemini-3.5-flash-lite"
+GEMINI_MODEL_ANALYST = "gemini-3.5-flash-lite"
+MAX_CALLS_PER_SESSION = "25"
+```
+
+A public app lets anyone use the key's quota, so keep `MAX_CALLS_PER_SESSION` low. Use sample or synthetic documents for public demos. Never commit the key.
 
 ## Try it with the sample data
 

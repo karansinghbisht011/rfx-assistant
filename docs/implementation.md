@@ -826,12 +826,13 @@ The README should document setup, run/test commands, configuration, and session-
 - Use synthetic/demo documents unless real-document handling is approved.
 - Optionally make the app private (viewers sign in and must be invited) to limit exposure of the Gemini key's quota.
 - Session data is lost on refresh by design; this is documented in the README.
+- Set `MAX_CALLS_PER_SESSION` in the secrets (25 for the public demo) so one visitor cannot use up the key's quota.
 
 This is a basic demo deployment, not an SLA-backed production service or durable storage solution.
 
 ### Pre-demo checks
 
-Confirm app availability, API key/model quota, catalogue load/version, one RFQ flow, one quote-analysis flow, PDF downloads, session behavior, and absence of confidential content in logs/repository.
+Confirm app availability, API key/model quota, catalogue load/version, one RFQ flow, one quote-analysis flow, the RFQ PDF download, session behavior, and absence of confidential content in logs/repository.
 
 ## 19. Implementation Phases
 
@@ -856,7 +857,7 @@ Confirm app availability, API key/model quota, catalogue load/version, one RFQ f
 | Exchange rate missing/stale | Record source/time; preserve original; exclude unconverted amounts from target ranking. |
 | API limits/model availability change | Configurable model; quota-error handling; verify before deployment; no free-tier assumptions. |
 | Session data is lost | Make session-only behavior explicit; do not imply persistence. |
-| Analyst tool loop is slow, costly, or drifts | Allowlisted pure tools, 4-round cap, call caps, verified placeholders, visible tool trace. |
+| The analyst misreads a request, or tries to compute | One structured call that can only return rules (enums, bounded numbers, known ids); an exact solver and every figure in code; the rules it understood are shown and re-checked against the result; a per-session call cap. |
 | Free-tier rate limits | Backoff, call caps, batching, and code-first matching in G2 and G4 to reduce calls. |
 | Prompt injection or malicious files | Treat content as data; constrain context; validate files; prevent model-controlled actions. |
 | Demo mistaken for production-ready | Label prototype assumptions; exclude unimplemented security, persistence, integrations, and approvals from claims. |
@@ -904,3 +905,9 @@ Confirm app availability, API key/model quota, catalogue load/version, one RFQ f
 - [ ] Secrets are not committed or exposed to the client.
 - [ ] Tests cover the verifiers, the allocation solver, the analyst service, the comparison engine, and unit conversion.
 - [ ] Deployment instructions and MVP limitations are documented.
+
+## 23. Deployment Record
+
+The app is deployed on Streamlit Community Cloud from the `main` branch (`app/main.py`, Python 3.12), with the Gemini key, the three model names and `MAX_CALLS_PER_SESSION` held in the platform's secrets. It is public; the per-session call cap limits what one visitor can use.
+
+Verified on the deployed app with the five sample quotations: the RFQ is generated and saved; five quotations are read in about 20 seconds (two at a time); the Review step shows the planted cases; Compare shows the lowest offers and vendor totals with the exchange-rate lookup working; the analyst returns a Purchase Proposal in about 3 seconds; and the session cap disables the analyst input once reached. A free app can sleep when idle, so the first visit may take a few seconds to wake it.
