@@ -205,7 +205,7 @@ These are intentional product decisions for the MVP, not unfinished features.
 **Out of scope**
 - Sending RFQs to vendors, vendor portals, approvals, purchase orders, ERP integration, persistent history, editing or deleting saved RFQs, image uploads, and email ingestion.
 
-## 5. AI Actions and Safeguards
+## 5. Agentic Workflows
 
 The product uses AI where language understanding adds value, and ordinary software everywhere accuracy and repeatability matter. The buyer stays in control at every step.
 
@@ -241,3 +241,129 @@ These checks run in software on every AI output. Anything doubtful appears in th
 Some edge cases need semantic judgement that simple rules cannot settle, such as whether a vendor's substitute product is technically equivalent to the item requested, or whether a free-text deviation note matters commercially. A full product could add a second AI model as an independent judge to review such cases before they reach the buyer.
 
 The MVP deliberately does not. A judge adds cost and delay on every call, its own opinions can be wrong and would need checking, and the free-tier limits are tight. Instead the MVP relies on the programmatic checks above, conservative flagging, and buyer review, which keeps the buyer as the judge of technical equivalence. An AI judge is a candidate for a later version if buyers find too many flagged items to review manually.
+
+### 5.4 Workflow 1: Generate an RFQ (as built and tested live)
+
+The first workflow turns a free-text purchasing request into a reviewed RFQ. It uses **two AI calls**, and most of the work is done by ordinary software around them.
+
+```
+Buyer's request
+   │
+   ├─ Software: check the input (empty, too long, not text)
+   ├─ AI call G1, "parse":  split the request into items; extract quantity and unit as written;
+   │                        suggest catalogue-style search terms
+   ├─ Software: confirm each value really appears in the request; parse quantities and units
+   ├─ Software: shortlist up to 8 catalogue candidates per item (fuzzy word match);
+   │            pick clear winners itself; flag the rest
+   ├─ AI call G2, "resolve": only for unclear items; choose one candidate from the shortlist, or none
+   ├─ Software: accept the AI's choice only if it is in the shortlist and the word match supports it
+   └─ Buyer: reviews the table and the Review summary, edits, accepts, saves
+```
+
+**Model and call set-up**
+
+| Setting | Value | Why |
+|---|---|---|
+| Provider and SDK | Google Gemini API, `google-genai` Python SDK (the only AI library) | One provider, simplest integration, no agent framework needed for fixed two-step calls |
+| Model | `gemini-3.5-flash-lite` for both calls (set in configuration, not in code) | The cheapest, fastest tier is enough: extraction over a short text and choosing from a list of 8. A larger `gemini-3.5-flash` is reserved for later document extraction |
+| Call type | Single-turn, no tools, no conversation memory | Fixed inputs and outputs; the application controls the flow |
+| Instructions | A versioned prompt file per call, sent as the system instruction | Prompts are reviewable and changeable without touching code |
+| Output format | JSON enforced by a response schema, then validated again by the application | Downstream steps never read free text |
+| Temperature | Provider default (Gemini 3 guidance); 0.1 is used only for the older 2.5 family | Newer models are tuned for their default; the schema keeps output stable |
+| Reasoning effort | Minimal | Extraction and list selection need no deep reasoning; keeps latency and cost low |
+| Output limit | 16,000 tokens | Large enough for about 100 items, and a response that hits the limit is treated as a failure, never as a partial result |
+| Timeout and retries | 90 seconds; one retry only for server errors; a rate limit is never retried automatically | Avoids hammering a free-tier quota |
+| Network | IPv4 forced | An unresponsive IPv6 route to Google made calls hang during testing |
+| Guardrails on volume | At most 12,000 characters, 100 items, and 60 AI calls per session | Cost control and abuse protection on a public demo |
+
+**Call G1: parse the request**
+- **Input:** the buyer's text, wrapped in `<request>` tags and declared to be untrusted data.
+- **Output:** an input classification (`procurement_request`, `unrelated` or `unintelligible`), and for each item: the exact wording from the request, the product name, up to three catalogue-style search terms, the quantity and unit **exactly as written** (or null), and an optional question.
+- **Prompt design:** the rules say never infer a quantity or unit and never default to one; split compound lines; expand abbreviations such as "PT" into "pressure transmitter"; return nothing for requests that are not about goods. It includes two worked examples, one of them a negative case ("Hi, can you help me?"), and instructs the model to ignore any instructions inside the request.
+
+**Call G2: choose the catalogue item**
+- **Input:** for each unclear item, the buyer's wording and its shortlist of up to 8 catalogue candidates (code, title, class). Items are sent in batches of 30 per call.
+- **Output:** for each item, one chosen code or none, a confidence (high, medium or low), a reason of up to 20 words, and up to three alternatives.
+- **Prompt design:** the model may only choose from the supplied list and must answer "none" rather than pick the closest-sounding entry. It is told to match the kind of product, not a shared word ("hex bolts" are hexagonal bolts, not anchor bolts). It includes a worked example.
+- **When it runs:** only when the software cannot decide, so many requests need one call, not two.
+
+**Who decides what**
+
+| Decision | Made by |
+|---|---|
+| Splitting the request into items, reading wording and abbreviations | AI (G1) |
+| Whether each extracted value appears in the request | Software |
+| Turning "ten", "1,000" or "a dozen" into numbers; mapping units to the standard list | Software |
+| Shortlisting catalogue candidates; picking an obvious winner | Software |
+| Choosing between similar candidates | AI (G2), then checked by software |
+| Accepting, correcting or rejecting every uncertain line | The buyer |
+
+**How the output is protected.** The AI's answer is validated against the schema; every extracted quantity and name is checked against the original text; a chosen code must be in the shortlist and its title is read from the catalogue, not from the AI; a confident AI choice is applied automatically only if its word-match score is within 3 points of the best candidate, otherwise it is shown first as a suggestion. A truncated, invalid or rate-limited response never produces a partial RFQ: the buyer's text is kept and a short message is shown.
+
+**Observed behaviour in live testing**
+
+| Test | Calls | Time | Result |
+|---|---|---|---|
+| Short request, 4 items | 2 | 4.1 s | All four lines correct; "instrument cable" matched "Instrumentation Cable", "safety gloves" matched "Protective gloves"; "gasket" left for the buyer |
+| Messy list, 35 lines (abbreviations, ranges, missing units, vague items) | 2 | 12.2 s | Most lines correct; ranges left blank; shared quantities split and left blank; vague items sent to the picker |
+
+Two wrong automatic matches were found ("hex bolts" matched "Anchor bolts", "PTFE tape" matched "Fluoropolymers PTFE"), although the right catalogue entries existed. Two fixes followed: the prompt rule about matching the kind of product, and the software guard that only applies an AI choice the word match supports.
+
+### 5.5 AI product considerations
+
+- **Right-sized model.** The work is language understanding over short text, not open-ended reasoning, so the cheapest tier with minimal reasoning is used. Quality is protected by software checks and buyer review instead of a larger model.
+- **Cost and latency.** Typically one or two calls per RFQ, about 4 to 12 seconds for lists up to 35 lines, on a small model. Code resolves clear matches without a call. Batching limits calls for long lists.
+- **Structured outputs over free text.** Every AI answer is a schema-checked record, so uncertainty is a field (confidence, nulls, questions), not a sentence the product has to interpret.
+- **Uncertainty is surfaced, not smoothed over.** Missing quantities stay blank, ranges stay blank, unknown units stay unrecognised, and unmatched items stay in the buyer's own words, each shown in the Review summary until the buyer decides.
+- **Privacy and safety.** Only the request text (and catalogue candidates for unclear items) is sent; no keys, session data or other users' data. The request is treated as data, never as instructions. The API key is held outside the code and the repository.
+- **Resilience to change.** Model identifiers live in configuration. During the build, the originally chosen model family was no longer open to new users, which was found by querying the provider's model list; the product switched models with no code change.
+- **How quality is judged.** There is no separate evaluation suite in the MVP; behaviour is checked by live use on realistic and messy requests, by the runtime verifiers, and by tests that run against a scripted stand-in and never reach the live service. Two real failures found this way were turned into permanent safeguards (above).
+- **Metrics worth tracking when this moves beyond a prototype.** AI calls per RFQ; time to a reviewed RFQ; share of lines matched automatically versus sent to the buyer; share of automatic matches the buyer later changes (the key quality signal); lines needing a quantity or unit fix; rate-limit and failure rates.
+- **Known limits.** Matching quality depends on the catalogue wording (it holds product names, not specifications); a request without clear product names yields guidance rather than an RFQ; free-tier rate limits cap how many requests can run per minute.
+
+### 5.6 Workflow 2: Read and align vendor quotations (as built and tested live)
+
+The second workflow reads vendor files in any supported format and shows how each lines up with the RFQ. It uses **at most two AI calls per file**, and many files need only one.
+
+```
+Vendor file (xlsx, csv, tsv, docx, pdf)
+   ├─ Software: check the file (real type, size, empty, protected, duplicate); parse it into text rows,
+   │            each with a reference (sheet and row, paragraph, table row, PDF block)
+   ├─ AI call G3, "read":  transcribe vendor, terms, lines, charges exactly as written, with the row reference
+   ├─ Software: parse prices, quantities, units, currency, tax wording, dates; check every value against the source row
+   ├─ Software: match lines to RFQ items by word similarity; clear matches need no AI
+   ├─ AI call G4, "match": only for lines software cannot place; says matched, possible, extra, or no match, and why
+   ├─ Software: verifiers raise flags (about 25 checks); an AI "matched" the words do not support is downgraded
+   └─ Buyer: sees the alignment matrix and each vendor's flags; can only Accept or Exclude (no number is ever edited)
+```
+
+| Setting | G3 (read) | G4 (match) |
+|---|---|---|
+| Model | `gemini-3.5-flash` | `gemini-3.5-flash-lite` |
+| Input | The document as tagged text rows (`[Offer!R12] ...`); image-only PDFs are sent as the PDF itself | The RFQ items (id, title, wording, quantity, unit) and only the unplaced vendor lines |
+| Output | Schema-enforced JSON: vendor, reference, date, validity, payment and delivery terms, stated total; per line the description, quantity, unit, price, price basis, line total, currency, tax wording, lead time, minimum order, option label and remarks, all as text exactly as written, plus the row reference and a verbatim source quote; charges listed separately | Per line: the RFQ item id or none, a status (matched, possible, no match, extra), visible differences, an alternate flag, a reason of up to 20 words |
+| Reasoning, temperature, limits | Minimal reasoning; provider default temperature; 16,000-token output limit; large files read in row chunks | Same |
+| Calls per file | 1 | 0 or 1 |
+
+**Design choices.** G3 sees only the document, never the RFQ, so it cannot bend what it reads toward what the buyer expects. Numbers come back as written and software parses them (Indian digit grouping, "Rs", "per 100"), which makes grounding checkable. Every value is checked against the row it came from. A missing price stays missing and is never read as zero. Totals, tax rows and freight rows become charges, not lines. Lines a vendor marks as optional are never matched to an RFQ item. A separate tax row means prices exclude tax; prices stated as tax-inclusive are only backed out when the rate is stated.
+
+**What the checks catch** (all found on the five test quotations without any file-specific code): partial coverage, several options for one item, a minimum order above the RFQ quantity, a possible (not certain) match with the difference named, an unreadable validity, price per 100 units, quote-level discounts, mixed currencies, a unit that cannot be compared (Pack against Set), prices with no value ("same as last supply"), and a price about ten times the other vendors' prices.
+
+**Live results.** One full pass over the five test quotations took 8 AI calls (11 across all testing, including re-runs after fixes).
+
+| Quote | Format | G3 time | G4 | Lines | Result |
+|---|---|---|---|---|---|
+| Quote1 | Excel | about 8 s | not needed, code matched all 17 | 17 | Clean; validated |
+| Quote2 | Excel, cover and terms sheets | about 30 s | about 1 s | 14 | Options, minimum order, possible match, unreadable validity |
+| Quote3 | Word letter | about 16 s | about 1 s | 18 | Per-100 pricing and discount read; the optional kit treated as an extra |
+| Quote4 | PDF with two tables | about 10 s | not needed | 17 | Mixed currency and the unit mismatch flagged |
+| Quote5 | Gmail-style email PDF | about 12 s | about 2 s | 17 | All 17 items read from one paragraph; two unpriced lines kept missing; outlier flagged |
+
+**Fixes made during testing** (each a general rule, none tied to a file): a tax amount listed as its own row now means prices exclude tax; a line with no price no longer also gets unit flags; optional extras are never matched to an RFQ item; a group of options counts once in the review count.
+
+**Speed.** Reading was first measured at 8 to 30 seconds per file, most of it waiting for the model's first word and for it to write a long record. Three general changes brought this to about 5 seconds per file with the same extracted values on the formats tested: the model's answer was slimmed (short field names, empty fields left out, the source row copied only when a row holds several lines), which cut the written output by about half; the reading step uses the lighter `gemini-3.5-flash-lite` model, which matched the larger model's values on the spreadsheet, Word, table-PDF and email-style files; and the answer is streamed so each line appears on the loading screen the moment it is found. Two files are read at the same time (no more, to respect rate limits); only the network call runs in a worker, and everything that changes the session happens in the main thread. A rate limit on one file fails only that file.
+
+**Limits.** Very large files are read in chunks; scanned images are sent natively but were not part of the test set; currency conversion and the cheapest-combination calculation come in the next workflow.
+
+**Workflow 3 (planned).** The tool-using analyst follows the same principles and will be documented here when built.
+

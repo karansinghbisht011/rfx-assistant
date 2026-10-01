@@ -19,8 +19,9 @@ TRANSITIONS: dict[str, dict[str, set[str]]] = {
         "saved": set(),
     },
     "quotation": {
-        "uploaded": {"parsed", "rejected"},
-        "parsed": {"needs_review", "validated", "rejected"},
+        "uploaded": {"parsed", "rejected", "failed"},
+        "failed": {"uploaded", "parsed", "rejected"},
+        "parsed": {"needs_review", "validated", "rejected", "failed"},
         "needs_review": {"validated", "rejected"},
         "validated": {"needs_review"},
         "rejected": set(),

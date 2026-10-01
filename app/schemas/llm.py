@@ -68,3 +68,56 @@ class WireResolution(BaseModel):
 
 class WireResolveResult(BaseModel):
     resolutions: list[WireResolution]
+
+
+# ---- G3 (quote extraction): short field names and optional fields keep the model's answer small and fast.
+# Only `ref` and `desc` are required on a line; anything the vendor did not write is left out.
+class WireExtractedLine(BaseModel):
+    ref: str = Field(description="reference of the row the line came from, copied from the document")
+    desc: str = Field(description="product description as written")
+    qty: str | None = Field(default=None, description="quantity as written, without the unit")
+    unit: str | None = Field(default=None, description="unit as written")
+    price: str | None = Field(default=None, description="price for one unit as written, with any currency")
+    basis: str | None = Field(default=None, description="only if the price is per N units, e.g. 'per 100 nos'")
+    total: str | None = Field(default=None, description="line amount as written")
+    cur: str | None = Field(default=None, description="currency as written, or the one in the table or section heading")
+    tax: str | None = Field(default=None, description="tax wording for the line or its section")
+    moq: str | None = Field(default=None, description="minimum order quantity wording")
+    opt: str | None = Field(default=None, description="Option A, Alternate, Optional spare and similar")
+    note: str | None = Field(default=None, description="anything else notable, e.g. no price given")
+    src: str | None = Field(default=None, description="exact words for this line, ONLY when the row holds several lines")
+
+
+class WireCharge(BaseModel):
+    kind: Literal["freight", "tax", "discount", "packing", "other"]
+    scope: Literal["line", "quote"]
+    text: str
+    ref: str | None = None
+
+
+class WireExtractedQuote(BaseModel):
+    is_quotation: bool
+    vendor: str | None = None
+    quote_ref: str | None = None
+    date: str | None = None
+    revision: str | None = None
+    validity: str | None = None
+    payment: str | None = None
+    delivery: str | None = None
+    total: str | None = Field(default=None, description="grand total the vendor states, as written")
+    lines: list[WireExtractedLine]
+    charges: list[WireCharge] | None = None
+    warnings: list[str] | None = None
+
+
+class WireLineMatch(BaseModel):
+    line_id: str
+    rfq_item_id: str | None
+    status: Literal["matched", "possible", "no_match", "extra"]
+    differences: list[str]
+    is_alternate: bool
+    reason: str
+
+
+class WireMatchResult(BaseModel):
+    matches: list[WireLineMatch]

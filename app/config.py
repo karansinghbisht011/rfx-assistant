@@ -45,6 +45,14 @@ MATCH_MARGIN = 8
 MATCH_PICK_TOLERANCE = 3  # an AI pick is applied automatically only if its score is this close to the best candidate
 MATCH_LOW = 82  # below this, even a partial-word match is treated as noise
 
+# Quotation matching and reading
+MATCH_LINE_HIGH = 90          # a vendor line this similar to exactly one RFQ item is matched by code
+MATCH_LINE_MARGIN = 15        # ...and must lead the next RFQ item by this much
+MATCH_LINE_LOW = 55           # an AI "matched" below this word similarity is downgraded to "possible"
+QUOTE_CALL_SPACING_SECONDS = 1.5  # pause between files when they are read one after another
+QUOTE_CONCURRENCY = 2             # files read at the same time; kept low so a free-tier rate limit is not hit
+PRICE_TOLERANCE = 0.01        # relative tolerance for quantity x price = total
+
 # Price outlier check: flag prices beyond this multiple of the median of other vendors
 PRICE_OUTLIER_FACTOR = 10
 

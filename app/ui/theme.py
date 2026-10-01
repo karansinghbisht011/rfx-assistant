@@ -205,6 +205,70 @@ h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .pick-meta {{ color: #6B7385; font-size: 0.8rem; margin: -0.3rem 0 0.5rem 0.2rem; }}
 [data-testid="stChatInput"] textarea {{ min-height: 118px; font-size: 1rem; }}
 [data-testid="stChatInput"] {{ border-radius: 14px; box-shadow: 0 4px 14px rgba(27,42,65,0.08); border: 1px solid {BORDER}; }}
+
+/* Step bar */
+.stepper {{ display: flex; align-items: center; gap: 0.35rem; margin: 0.2rem 0 1rem; flex-wrap: wrap; }}
+.step {{ display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.9rem 0.4rem 0.45rem; border-radius: 999px; font-size: 0.9rem;
+    font-weight: 500; background: #fff; border: 1px solid {BORDER}; color: #6B7385; }}
+.step-n {{ width: 22px; height: 22px; border-radius: 50%; background: #ECE8E0; color: #6B7385; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 0.78rem; font-weight: 700; }}
+.step-active {{ background: linear-gradient(135deg, {TEAL}, {TEAL_DEEP}); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(14,124,123,0.3); font-weight: 600; }}
+.step-active .step-n {{ background: rgba(255,255,255,0.25); color: #fff; }}
+.step-done {{ color: {INK}; }} .step-done .step-n {{ background: {TEAL}; color: #fff; }}
+.step-open {{ color: {INK}; }}
+.step-locked {{ opacity: 0.55; }}
+.step-line {{ height: 2px; width: 22px; background: #E3DED3; border-radius: 2px; }}
+.step-line-done {{ background: {TEAL}; }}
+
+/* Analysing screen */
+[class*="st-key-card-analysing"] {{ border-left: 4px solid {TEAL}; padding: 1.2rem 1.5rem; }}
+.an-head {{ display: flex; justify-content: space-between; align-items: baseline; }}
+.an-title {{ font-size: 1.2rem; font-weight: 700; }}
+.an-sub {{ color: #6B7385; font-size: 0.9rem; }}
+.an-bar {{ height: 6px; border-radius: 6px; background: #EDE9E0; overflow: hidden; margin: 0.8rem 0 1.1rem; }}
+.an-bar-fill {{ height: 100%; border-radius: 6px; transition: width .6s ease;
+    background: linear-gradient(90deg, {TEAL}, {SAFFRON}, {TEAL}); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }}
+@keyframes shimmer {{ 0% {{ background-position: 200% 0; }} 100% {{ background-position: -200% 0; }} }}
+.an-tiles {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.7rem; margin-bottom: 1.1rem; }}
+.an-tile {{ background: #FAF7F2; border: 1px solid {BORDER}; border-radius: 12px; padding: 0.6rem 0.8rem; }}
+.an-n {{ font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: {INK}; animation: pop .35s ease; }}
+.an-l {{ font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7385; }}
+@keyframes pop {{ 0% {{ transform: scale(0.8); opacity: 0.4; }} 100% {{ transform: scale(1); opacity: 1; }} }}
+.an-files {{ display: flex; flex-direction: column; gap: 0.5rem; }}
+.an-file {{ display: flex; align-items: center; gap: 0.8rem; padding: 0.6rem 0.8rem; border-radius: 12px; border: 1px solid {BORDER}; background: #fff; transition: all .3s ease; }}
+.an-ico {{ font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; padding: 0.35rem 0.45rem; border-radius: 8px; background: #ECE8E0; color: #5B6577; min-width: 46px; text-align: center; }}
+.an-name {{ flex: 1; display: flex; flex-direction: column; gap: 0.15rem; }}
+.an-name small {{ color: #6B7385; font-size: 0.82rem; }}
+.an-mark {{ font-size: 1rem; font-weight: 700; width: 1.4rem; text-align: center; }}
+.an-queued {{ opacity: 0.6; }}
+.an-active {{ border-color: {TEAL}; background: #F2FAF8; animation: glow 1.6s ease-in-out infinite; }}
+@keyframes glow {{ 0%, 100% {{ box-shadow: 0 0 0 0 rgba(14,124,123,0.25); }} 50% {{ box-shadow: 0 0 0 6px rgba(14,124,123,0); }} }}
+.an-done .an-mark {{ color: #17803D; animation: pop .4s ease; }} .an-done .an-ico {{ background: #DDF4E4; color: #17803D; }}
+.an-rejected, .an-failed {{ background: #FFF6F5; border-color: #F3C9C6; }} .an-rejected .an-mark, .an-failed .an-mark {{ color: #B42318; }}
+.an-feed {{ display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.2rem; }}
+.an-line {{ font-size: 0.82rem; color: {INK}; padding: 0.1rem 0 0.1rem 0.6rem; border-left: 2px solid {TEAL};
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: slidein .35s ease; }}
+@keyframes slidein {{ from {{ opacity: 0; transform: translateX(-10px); }} to {{ opacity: 1; transform: none; }} }}
+.an-stages {{ display: flex; gap: 0.35rem; flex-wrap: wrap; }}
+.an-st {{ font-size: 0.78rem; padding: 0.12rem 0.55rem; border-radius: 999px; background: #ECE8E0; color: #8A8576; }}
+.an-st.done {{ background: #D5EFEA; color: #0B6B5C; }}
+.an-st.active {{ background: {TEAL}; color: #fff; animation: pulse 1.1s infinite; }}
+
+/* Alignment matrix */
+.matrix-wrap {{ overflow-x: auto; border-radius: 14px; border: 1px solid {BORDER}; background: #fff; box-shadow: 0 6px 18px rgba(27,42,65,0.07); }}
+table.matrix {{ border-collapse: collapse; width: 100%; font-size: 0.88rem; }}
+table.matrix th {{ background: #F6F3EC; text-align: left; padding: 0.55rem 0.7rem; font-weight: 600; vertical-align: bottom; border-bottom: 1px solid {BORDER}; }}
+table.matrix th small {{ display: block; font-weight: 400; color: #6B7385; font-size: 0.75rem; }}
+table.matrix td {{ padding: 0.45rem 0.7rem; border-bottom: 1px solid #F0ECE3; }}
+table.matrix td.item {{ font-weight: 500; }} table.matrix td.item small {{ color: #6B7385; font-weight: 400; margin-left: 0.3rem; }}
+.mx {{ display: inline-block; padding: 0.12rem 0.55rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }}
+.mx-ok {{ background: #DDF4E4; color: #17803D; }} .mx-review {{ background: #FFF0D6; color: #B25E09; }}
+.mx-possible {{ background: #E8F0FB; color: #1D4577; }} .mx-missing {{ background: #F1EEE8; color: #9A958B; font-weight: 500; }}
+.mx-options {{ background: #EFE6FA; color: #5B2F91; }} .mx-excluded {{ background: #F1EEE8; color: #9A958B; text-decoration: line-through; }}
+.cov {{ display: inline-block; margin-top: 0.2rem; padding: 0.05rem 0.45rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700; background: #D5EFEA; color: #0B6B5C; }}
+.tot {{ display: block; margin-top: 0.25rem; font-size: 0.95rem; font-weight: 700; color: {INK}; }}
+.cov-part {{ background: #FFF0D6; color: #B25E09; }}
+.terms {{ color: #6B7385; font-size: 0.85rem; }}
 </style>
 """
 

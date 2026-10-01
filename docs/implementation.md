@@ -327,7 +327,9 @@ Provide a session-only list, newest first, with summary tiles (RFQs saved, line 
 8. Deterministic code calculates eligible item comparisons and indicative sourcing scenarios.
 9. Show comparisons, the Review summary, and the analyst panel; enable analysis PDF download.
 
-### Guided steps
+### Guided steps (built)
+
+The step bar, upload with a live analysis screen, and the review step (alignment matrix, per-vendor flags, Accept and Exclude) are built; Compare and Ask are shown locked until Phase 5. Files are read one after another with a short pause so a free-tier rate limit is not hit; a file that hits a rate limit is kept and can be retried without being re-uploaded. The design below is the original plan.
 
 Evaluate Quotations is presented as five steps on one page, with a step bar (done, active, upcoming), Back and Next buttons, and progress kept in session state: **Select RFQ**, **Upload**, **Review**, **Compare**, **Ask**. Each step unlocks when the one before it is complete: Upload needs a selected RFQ, Review needs at least one parsed quotation, Compare needs every quotation validated or its flags resolved, and Ask needs a computed analysis. A locked step shows a one-line reason instead of its content. Arriving from Manage's **Select for evaluation** lands on Upload with the RFQ already chosen. The step bar is a reusable component (`app/ui/stepper.py`), built in Phases 4 and 5 with the steps themselves.
 

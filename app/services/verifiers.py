@@ -136,25 +136,29 @@ def refresh_flags(rfq: RFQ) -> None:
     sync_log(rfq)
 
 
-def sync_log(rfq: RFQ) -> None:
-    """Keep the Review summary in step with the lines: an entry is open until the buyer accepts it
-    (reviewed) or edits the line so the problem goes away (fixed). Entries never disappear."""
-    live = {i.item_id for i in rfq.items} | {"rfq"}
-    current = {f"{f.scope_id}:{f.code}": f for f in all_flags(rfq) if f.severity in ("block", "review")}
-    known = {e.key: e for e in rfq.review_log}
+def sync_entries(log: list[ReviewEntry], flags: list[ReviewFlag], live: set[str], blocking: set[str]) -> list[ReviewEntry]:
+    """Keep a Review summary in step with the flags: an entry is open until the buyer accepts it
+    (reviewed) or the problem goes away (fixed). Entries never disappear; those whose subject is gone do."""
+    current = {f"{f.scope_id}:{f.code}": f for f in flags if f.severity in ("block", "review")}
+    known = {e.key: e for e in log}
     for key, flag in current.items():
         entry = known.get(key)
         if entry is None:
             entry = ReviewEntry(key=key, code=flag.code, scope_id=flag.scope_id, message=flag.message,
-                                blocking=flag.code in ("R6", "R8"))
-            rfq.review_log.append(entry)
+                                blocking=flag.code in blocking)
+            log.append(entry)
         entry.status = "reviewed" if flag.resolution == "accepted" else "open"
         if entry.status == "open":
             entry.message = flag.message
-    for entry in rfq.review_log:
+    for entry in log:
         if entry.key not in current and entry.status != "reviewed":
             entry.status = "fixed"
-    rfq.review_log = [e for e in rfq.review_log if e.scope_id in live]
+    return [e for e in log if e.scope_id in live]
+
+
+def sync_log(rfq: RFQ) -> None:
+    live = {i.item_id for i in rfq.items} | {"rfq"}
+    rfq.review_log = sync_entries(rfq.review_log, all_flags(rfq), live, {"R6", "R8"})
 
 
 def all_flags(rfq: RFQ) -> list[ReviewFlag]:

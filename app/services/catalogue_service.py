@@ -26,6 +26,11 @@ def _singular(text: str) -> str:
     return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w for w in text.split())
 
 
+def fold(text: str) -> str:
+    """Normalized text with plurals folded, for comparing a vendor's wording with an RFQ item."""
+    return _singular(normalize(text))
+
+
 class Catalogue:
     def __init__(self, frame: pd.DataFrame):
         missing = [c for c in REQUIRED_COLUMNS if c not in frame.columns]

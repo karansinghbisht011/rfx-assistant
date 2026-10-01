@@ -20,6 +20,7 @@ def _toggle_view(rfq_id: str) -> None:
 
 def _select(store: MutableMapping[str, Any], rfq_id: str) -> None:
     state.select_rfq(store, rfq_id)
+    store["eval_step"] = 2
     nav.go("Evaluate Quotations")
 
 

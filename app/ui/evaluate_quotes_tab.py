@@ -5,7 +5,7 @@ import streamlit as st
 
 from app import state
 from app.schemas.rfq import RFQ
-from app.ui import nav
+from app.ui import evaluate_review, evaluate_upload, nav, stepper
 from app.ui.components import empty_state
 
 
@@ -18,6 +18,7 @@ def _choose(store: MutableMapping[str, Any]) -> None:
     rfq_id = st.session_state.get("eval-rfq-select")
     if rfq_id:
         state.select_rfq(store, rfq_id)
+        stepper.go(store, 2)
 
 
 def _selected_card(store: MutableMapping[str, Any], rfq: RFQ) -> None:
@@ -42,24 +43,46 @@ def _chooser(store: MutableMapping[str, Any], rfqs: list[RFQ]) -> None:
         )
 
 
+def _step_buttons(store: MutableMapping[str, Any], step: int, can_next: bool) -> None:
+    back, nxt, _ = st.columns([1, 1, 6])
+    back.button("Back", key="step-back", disabled=step <= 1, on_click=stepper.go, args=(store, step - 1), use_container_width=True)
+    nxt.button("Next", key="step-next", type="primary", disabled=not can_next or step >= stepper.LIVE_STEPS,
+               on_click=stepper.go, args=(store, step + 1), use_container_width=True)
+
+
 def render(store: MutableMapping[str, Any]) -> None:
     st.subheader("Evaluate Quotations")
     rfqs = state.list_rfqs(store)
     if not rfqs:
-        empty_state(
-            "Save an RFQ first",
-            "Quotations are evaluated against an RFQ saved in this session. Create one in Generate an RFQ.",
-        )
+        empty_state("Save an RFQ first",
+                    "Quotations are evaluated against an RFQ saved in this session. Create one in Generate an RFQ.")
         return
     chosen = state.selected_rfq(store)
-    if chosen:
-        _selected_card(store, chosen)
-    else:
+    if chosen is None:
+        stepper.go(store, 1)
+    if store.get("analysing") and chosen:
+        evaluate_upload.render_analysing(store, chosen)
+        return
+    if store.get("retrying") and chosen:
+        evaluate_upload.render_retry(store, chosen)
+        return
+
+    quotes = evaluate_review.usable(store) if chosen else []
+    unlocked = 1 if chosen is None else 3 if quotes else 2
+    step = min(stepper.current(store), unlocked)
+    stepper.go(store, step)
+    stepper.render(store, unlocked)
+
+    if step == 1 or chosen is None:
+        if chosen:
+            _selected_card(store, chosen)
         _chooser(store, rfqs)
-    st.write("Upload vendor quotations to compare against this RFQ.")
-    st.file_uploader(
-        "Vendor quotations",
-        type=["csv", "tsv", "xlsx", "pdf", "docx"],
-        accept_multiple_files=True,
-        disabled=True,
-    )
+        _step_buttons(store, 1, chosen is not None)
+        return
+    _selected_card(store, chosen)
+    if step == 2:
+        evaluate_upload.render(store, chosen)
+        _step_buttons(store, 2, bool(quotes))
+    else:
+        evaluate_review.render(store, chosen)
+        _step_buttons(store, 3, False)

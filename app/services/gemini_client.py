@@ -10,13 +10,16 @@ import re
 import sys
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
 
 from app import config
+from app.services.stream_lines import LineStreamParser
 from app.schemas.llm import (
-    ParsedItem, ParseResult, Resolution, ResolveRequest, ResolveResult, WireParseResult, WireResolveResult,
+    ParsedItem, ParseResult, Resolution, ResolveRequest, ResolveResult, WireExtractedQuote, WireMatchResult,
+    WireParseResult, WireResolveResult,
 )
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -43,6 +46,11 @@ class GeminiClient(Protocol):
 
     def resolve_items(self, requests: list[ResolveRequest]) -> ResolveResult: ...
 
+    def extract_quote(self, document_text: str, pdf_bytes: bytes | None = None,
+                      on_line: "Callable[[dict], None] | None" = None) -> WireExtractedQuote: ...
+
+    def match_lines(self, rfq_items: list[dict], lines: list[dict]) -> WireMatchResult: ...
+
 
 _UNITS = (
     r"nos|no|nr|pcs|pc|pieces?|each|sets?|pairs?|kits?|kgs?|kilos?|tonnes?|tons?|mt|mtrs?|metres?|meters?|m|"
@@ -53,6 +61,10 @@ _SEGMENT = re.compile(
     rf"^\s*(?:(?P<qty>{_QTY})\s+)?(?:(?P<unit>{_UNITS})\b\s+(?:of\s+)?)?(?P<name>[a-zA-Z].*?)\s*$", re.I
 )
 _SYNONYMS = {"safety": "protective", "pt": "pressure transmitter", "cable": "cable"}
+
+
+class NotConfigured(GeminiError):
+    """No Gemini key is set, so quotations cannot be read."""
 
 
 class MockGemini:
@@ -107,12 +119,13 @@ class MockGemini:
 class LiveGemini:
     """Real Gemini calls for G1 (parse) and G2 (catalogue resolve)."""
 
-    def __init__(self, api_key: str, model: str, *, call_limit: int | None = None):
+    def __init__(self, api_key: str, model: str, *, extract_model: str | None = None, call_limit: int | None = None):
         from google import genai
         from google.genai import types
 
         self._types = types
         self._model = model
+        self._extract_model = extract_model or model
         client_args = {}
         if config.FORCE_IPV4:
             import httpx
@@ -129,18 +142,20 @@ class LiveGemini:
         self.calls = 0
         self._limit = call_limit
 
-    def _generate(self, system_prompt: str, contents: str, schema: type[BaseModel]) -> str:
+    def _generate(self, system_prompt: str, contents, schema: type[BaseModel], model: str | None = None,
+                  on_chunk: Callable[[str], None] | None = None) -> str:
         """One model call with bounded retry. Returns the raw JSON text; never logs content."""
         from google.genai import errors
 
         types = self._types
+        model = model or self._model
         cfg = dict(
             system_instruction=system_prompt,
             response_mime_type="application/json",
             response_schema=schema,
             max_output_tokens=config.MAX_OUTPUT_TOKENS,
         )
-        if self._model.startswith("gemini-2.5"):
+        if model.startswith("gemini-2.5"):
             cfg["temperature"] = config.GENERATION_TEMPERATURE
             cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
         else:  # Gemini 3.x: default temperature is recommended; keep reasoning minimal for speed and cost
@@ -151,9 +166,21 @@ class LiveGemini:
             self.calls += 1
             started = time.monotonic()
             try:
-                response = self._client.models.generate_content(
-                    model=self._model, contents=contents, config=types.GenerateContentConfig(**cfg)
-                )
+                if on_chunk is None:
+                    response = self._client.models.generate_content(
+                        model=model, contents=contents, config=types.GenerateContentConfig(**cfg)
+                    )
+                else:  # streamed: hand each piece of text to the caller as it arrives
+                    pieces, last = [], None
+                    for chunk in self._client.models.generate_content_stream(
+                        model=model, contents=contents, config=types.GenerateContentConfig(**cfg)
+                    ):
+                        last = chunk
+                        if chunk.text:
+                            pieces.append(chunk.text)
+                            on_chunk(chunk.text)
+                    response = last
+                    response_text = "".join(pieces)
             except errors.APIError as exc:
                 code = getattr(exc, "code", None)
                 _log(f"call {self.calls} failed: HTTP {code} after {time.monotonic() - started:.1f}s")
@@ -163,13 +190,21 @@ class LiveGemini:
                     time.sleep(2)
                     continue
                 raise GeminiError(f"Gemini request failed (HTTP {code})") from exc
-            _log(f"call {self.calls} ok in {time.monotonic() - started:.1f}s")
-            finish = response.candidates[0].finish_reason if response.candidates else None
+            elapsed = time.monotonic() - started
+            usage = getattr(response, "usage_metadata", None) if response is not None else None
+            if usage is not None:  # sizes and speed only, never content
+                out = getattr(usage, "candidates_token_count", None) or 0
+                _log(f"call {self.calls} ok in {elapsed:.1f}s | {model} | tokens in={getattr(usage, 'prompt_token_count', '?')} "
+                     f"out={out} thinking={getattr(usage, 'thoughts_token_count', 0) or 0} | {out / elapsed:.0f} out tok/s")
+            else:
+                _log(f"call {self.calls} ok in {elapsed:.1f}s")
+            finish = response.candidates[0].finish_reason if response is not None and response.candidates else None
             if finish is not None and getattr(finish, "name", str(finish)) != "STOP":
                 raise BadResponse(f"Response ended early ({getattr(finish, 'name', finish)})")
-            if not response.text:
+            text = response_text if on_chunk is not None else (response.text if response is not None else None)
+            if not text:
                 raise BadResponse("Empty response")
-            return response.text
+            return text
         raise GeminiError("Gemini request failed")
 
     def parse_request(self, text: str) -> ParseResult:
@@ -206,8 +241,58 @@ class LiveGemini:
         return ResolveResult(resolutions=resolutions)
 
 
+def _extract(self, document_text: str, pdf_bytes: bytes | None = None,
+             on_line: Callable[[dict], None] | None = None) -> WireExtractedQuote:
+    prompt = (PROMPTS / "quote_extraction.md").read_text(encoding="utf-8")
+    task = f"<document>\n{document_text}\n</document>\n\nTranscribe this quotation." if document_text else "Transcribe this quotation."
+    contents = [self._types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"), task] if pdf_bytes else task
+    on_chunk = None
+    if on_line is not None:
+        parser = LineStreamParser()
+
+        def on_chunk(text: str) -> None:  # a preview problem must never fail the read
+            try:
+                for found in parser.feed(text):
+                    on_line(found)
+            except Exception:
+                pass
+
+    raw = self._generate(prompt, contents, WireExtractedQuote, model=self._extract_model, on_chunk=on_chunk)
+    try:
+        return WireExtractedQuote.model_validate_json(raw)
+    except ValidationError as exc:
+        raise BadResponse("Response did not match the schema") from exc
+
+
+def _match(self, rfq_items: list[dict], lines: list[dict]) -> WireMatchResult:
+    prompt = (PROMPTS / "quote_matching.md").read_text(encoding="utf-8")
+    task = (f"<rfq_items>{json.dumps(rfq_items, ensure_ascii=False)}</rfq_items>\n"
+            f"<quote_lines>{json.dumps(lines, ensure_ascii=False)}</quote_lines>\n\nMatch every quotation line.")
+    raw = self._generate(prompt, task, WireMatchResult)
+    try:
+        return WireMatchResult.model_validate_json(raw)
+    except ValidationError as exc:
+        raise BadResponse("Response did not match the schema") from exc
+
+
+LiveGemini.extract_quote = _extract
+LiveGemini.match_lines = _match
+
+
 def _log(message: str) -> None:
     print(f"[gemini] {message}", file=sys.stderr, flush=True)
+
+
+def _mock_extract(self, document_text: str, pdf_bytes: bytes | None = None, on_line=None):
+    raise NotConfigured("Reading quotations needs the AI service. Add a Gemini key to enable it.")
+
+
+def _mock_match(self, rfq_items: list[dict], lines: list[dict]):
+    raise NotConfigured("Reading quotations needs the AI service. Add a Gemini key to enable it.")
+
+
+MockGemini.extract_quote = _mock_extract
+MockGemini.match_lines = _mock_match
 
 
 def get_client() -> GeminiClient:
@@ -216,6 +301,7 @@ def get_client() -> GeminiClient:
     if key and config.MODEL_LITE:
         limit = os.getenv("GEMINI_CALL_LIMIT")
         _log(f"live client, model {config.MODEL_LITE}")
-        return LiveGemini(key, config.MODEL_LITE, call_limit=int(limit) if limit else None)
+        return LiveGemini(key, config.MODEL_LITE, extract_model=config.MODEL_EXTRACT or None,
+                          call_limit=int(limit) if limit else None)
     _log("no key or model configured: using the local stand-in")
     return MockGemini()
