@@ -5,7 +5,9 @@ from decimal import Decimal
 
 from openpyxl import Workbook
 
-from app.schemas.llm import WireCharge, WireExtractedLine, WireExtractedQuote, WireLineMatch, WireMatchResult
+from app.schemas.llm import (
+    WireCharge, WireExtractedLine, WireExtractedQuote, WireLineMatch, WireMatchResult, WirePin, WireProposal,
+)
 from app.schemas.rfq import RFQ, RequestedItem
 from app.services.gemini_client import GeminiError, MockGemini
 
@@ -65,11 +67,17 @@ def wire_quote(lines: list[WireExtractedLine], **kw) -> WireExtractedQuote:
 
 
 class ScriptedGemini(MockGemini):
-    """Returns prepared answers for extraction and matching, and counts the calls."""
+    """Returns prepared answers for extraction, matching and the analyst, and counts the calls."""
+
+    stand_in = False
 
     def __init__(self, quote: WireExtractedQuote | None = None, matches: dict[str, tuple[str | None, str]] | None = None,
-                 extract_error: Exception | None = None, match_error: Exception | None = None):
+                 extract_error: Exception | None = None, match_error: Exception | None = None,
+                 proposals: list | None = None, propose_error: Exception | None = None):
         self.quote, self.matches = quote, matches or {}
+        self.proposals, self.propose_error = list(proposals or []), propose_error
+        self.propose_calls = 0
+        self.last_propose: dict | None = None
         self.extract_error, self.match_error = extract_error, match_error
         self.extract_calls = self.match_calls = 0
         self.last_match_payload: tuple[list, list] | None = None
@@ -81,6 +89,14 @@ class ScriptedGemini(MockGemini):
         for line in self.quote.lines if on_line else []:  # stream the lines the way the live client does
             on_line(line.model_dump(exclude_none=True))
         return self.quote
+
+    def propose(self, data, request, history, previous_rules, correction=None):
+        self.propose_calls += 1
+        self.last_propose = {"data": data, "request": request, "history": history, "previous": previous_rules, "correction": correction}
+        if self.propose_error:
+            raise self.propose_error
+        item = self.proposals.pop(0) if len(self.proposals) > 1 else self.proposals[0]
+        return item(request) if callable(item) else item
 
     def match_lines(self, rfq_items, lines):
         self.match_calls += 1
@@ -111,3 +127,9 @@ def standard_wire(rows=None, **kw):
                        total=(_cell(r[5]) if len(r) > 5 else None) or None, cur="INR")
              for n, r in enumerate(rows[1:], start=2)]
     return wire_quote(lines, **kw)
+
+
+def wire_rules(reply="I will build the cheapest purchase.", **kw) -> WireProposal:
+    base = dict(reply=reply, allow_split=False, every_vendor_supplies=False, include_flagged=False, assume_rfq_unit=False)
+    base.update(kw)
+    return WireProposal(**base)

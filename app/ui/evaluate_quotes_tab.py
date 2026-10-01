@@ -5,7 +5,7 @@ import streamlit as st
 
 from app import state
 from app.schemas.rfq import RFQ
-from app.ui import evaluate_review, evaluate_upload, nav, stepper
+from app.ui import evaluate_compare, evaluate_review, evaluate_upload, nav, stepper
 from app.ui.components import empty_state
 
 
@@ -68,7 +68,7 @@ def render(store: MutableMapping[str, Any]) -> None:
         return
 
     quotes = evaluate_review.usable(store) if chosen else []
-    unlocked = 1 if chosen is None else 3 if quotes else 2
+    unlocked = 1 if chosen is None else 4 if quotes else 2
     step = min(stepper.current(store), unlocked)
     stepper.go(store, step)
     stepper.render(store, unlocked)
@@ -83,6 +83,9 @@ def render(store: MutableMapping[str, Any]) -> None:
     if step == 2:
         evaluate_upload.render(store, chosen)
         _step_buttons(store, 2, bool(quotes))
-    else:
+    elif step == 3:
         evaluate_review.render(store, chosen)
-        _step_buttons(store, 3, False)
+        _step_buttons(store, 3, any(not q.excluded for q in quotes))
+    else:
+        evaluate_compare.render(store, chosen)
+        _step_buttons(store, 4, False)

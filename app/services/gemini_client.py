@@ -19,7 +19,7 @@ from app import config
 from app.services.stream_lines import LineStreamParser
 from app.schemas.llm import (
     ParsedItem, ParseResult, Resolution, ResolveRequest, ResolveResult, WireExtractedQuote, WireMatchResult,
-    WireParseResult, WireResolveResult,
+    WireParseResult, WireProposal, WireResolveResult,
 )
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -51,6 +51,9 @@ class GeminiClient(Protocol):
 
     def match_lines(self, rfq_items: list[dict], lines: list[dict]) -> WireMatchResult: ...
 
+    def propose(self, data: str, request: str, history: list[dict], previous_rules: dict | None,
+                correction: str | None = None) -> WireProposal: ...
+
 
 _UNITS = (
     r"nos|no|nr|pcs|pc|pieces?|each|sets?|pairs?|kits?|kgs?|kilos?|tonnes?|tons?|mt|mtrs?|metres?|meters?|m|"
@@ -68,6 +71,7 @@ class NotConfigured(GeminiError):
 
 
 class MockGemini:
+    stand_in = True    # the UI shows AI features as unavailable when this is the client
     """Splits a request on commas, 'and' and new lines and reads 'quantity unit name' per segment."""
 
     def parse_request(self, text: str) -> ParseResult:
@@ -119,13 +123,15 @@ class MockGemini:
 class LiveGemini:
     """Real Gemini calls for G1 (parse) and G2 (catalogue resolve)."""
 
-    def __init__(self, api_key: str, model: str, *, extract_model: str | None = None, call_limit: int | None = None):
+    def __init__(self, api_key: str, model: str, *, extract_model: str | None = None, analyst_model: str | None = None,
+                 call_limit: int | None = None):
         from google import genai
         from google.genai import types
 
         self._types = types
         self._model = model
         self._extract_model = extract_model or model
+        self._analyst_model = analyst_model or extract_model or model
         client_args = {}
         if config.FORCE_IPV4:
             import httpx
@@ -275,8 +281,25 @@ def _match(self, rfq_items: list[dict], lines: list[dict]) -> WireMatchResult:
         raise BadResponse("Response did not match the schema") from exc
 
 
+def _propose(self, data: str, request: str, history: list[dict], previous_rules: dict | None,
+             correction: str | None = None) -> WireProposal:
+    prompt = (PROMPTS / "analyst.md").read_text(encoding="utf-8")
+    task = (f"<data>{data}</data>\n"
+            f"<previous_rules>{json.dumps(previous_rules, ensure_ascii=False) if previous_rules else 'none'}</previous_rules>\n"
+            f"<history>{json.dumps(history, ensure_ascii=False)}</history>\n"
+            f"<request>{request}</request>")
+    if correction:
+        task += f"\n\nYour last answer had a problem: {correction} Answer again with valid ids only."
+    raw = self._generate(prompt, task, WireProposal, model=self._analyst_model)
+    try:
+        return WireProposal.model_validate_json(raw)
+    except ValidationError as exc:
+        raise BadResponse("Response did not match the schema") from exc
+
+
 LiveGemini.extract_quote = _extract
 LiveGemini.match_lines = _match
+LiveGemini.propose = _propose
 
 
 def _log(message: str) -> None:
@@ -291,8 +314,13 @@ def _mock_match(self, rfq_items: list[dict], lines: list[dict]):
     raise NotConfigured("Reading quotations needs the AI service. Add a Gemini key to enable it.")
 
 
+def _mock_propose(self, data, request, history, previous_rules, correction=None):
+    raise NotConfigured("The analyst needs the AI service. Add a Gemini key to enable it.")
+
+
 MockGemini.extract_quote = _mock_extract
 MockGemini.match_lines = _mock_match
+MockGemini.propose = _mock_propose
 
 
 def get_client() -> GeminiClient:
@@ -302,6 +330,7 @@ def get_client() -> GeminiClient:
         limit = os.getenv("GEMINI_CALL_LIMIT")
         _log(f"live client, model {config.MODEL_LITE}")
         return LiveGemini(key, config.MODEL_LITE, extract_model=config.MODEL_EXTRACT or None,
+                          analyst_model=config.MODEL_ANALYST or None,
                           call_limit=int(limit) if limit else None)
     _log("no key or model configured: using the local stand-in")
     return MockGemini()

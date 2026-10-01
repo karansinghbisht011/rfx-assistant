@@ -165,26 +165,24 @@ Evaluate Quotations is presented as guided steps (Select the RFQ, Upload, Review
    - It identifies the lowest comparable offer for each RFQ item and the lowest-total single-vendor quotation where the bids cover a comparable scope. Any limitations in coverage or comparability must be shown next to the result.
    - The user can inspect supporting quotation evidence and the reasons for a match, exception, exclusion, or calculation wherever available.
 
-7. **View the indicative multi-vendor combination**
-   - The system calculates an indicative hybrid deal by selecting the lowest-priced eligible, comparable offer for each RFQ item, subject to the defined coverage and technical-compliance checks.
-   - It shows the selected vendor and offer for each item, the resulting vendor split, and the combined calculated total.
-   - Offers with unresolved technical equivalence, missing critical prices, or material commercial uncertainty are not silently treated as eligible. They are flagged and their effect on the hybrid calculation is explained.
-   - The hybrid result is presented as an analytical recommendation for buyer review, not as an automatic award or purchase decision.
+7. **Compare the quotations**
+   - The Compare step shows two calculated summaries. **Lowest offer for each item** gives the cheapest single vendor for each RFQ item (one vendor fulfilling the whole item). **Vendor totals** gives what each vendor's quotation comes to for the whole RFQ and whether it covers every item.
+   - Everything is calculated by the application on the same basis: unit price × RFQ quantity, before tax, in one currency. Lines that cannot be compared (no price, a unit that cannot be converted, an open review point, a missing exchange rate) are listed with the reason, never silently counted.
+   - Exchange rates come from a lightweight lookup with the rate, source, and date shown, and the buyer can enter a rate. Without a rate, foreign-currency prices are left out of the ranking and the page says so.
 
-8. **Ask the analyst**
-   - The user can ask questions about the comparison in plain language and receive answers as text, tables, and charts, with results downloadable as CSV or Excel.
-   - The analyst handles what-if questions: which vendor is cheapest overall or per item, what happens if a vendor is excluded, what a split among at most N vendors would cost, which vendors cover every item, savings against a chosen vendor, what a vendor's stated freight, taxes, and discounts are, why a line was excluded or flagged, and what evidence supports a price.
-   - Every figure shown is calculated by the application, not by the AI. The analyst states the assumptions it used (for example, "excluding Vendor B") and any exclusions, flags, or coverage gaps that affect the answer, and the user can see how each result was calculated.
-   - When a question is ambiguous it asks one short clarifying question; when the quotations do not contain the information (for example, vendor reputation or delivery track record), it says so.
-   - The analyst presents analysis for the buyer's consideration and never issues an award or purchase decision.
-   - The user can download the analysis as a PDF including the comparison, both scenarios, currency details, the Review summary, and assumptions.
+8. **Ask the analyst for a Purchase Proposal**
+   - Beside the summaries is a chat where the buyer describes the purchase they want in plain language, for example "make me a purchase summary allowing split purchases so the total is cheapest" or "I want a purchase relationship with every responder, take the cheapest options otherwise".
+   - The result is a **Purchase Proposal** shown above the summaries: a quote-style table with the item, the required quantity, the vendor, the quantity bought, the unit price, and the total for each line, and a grand total. With split purchases allowed, the same item can be bought from several vendors, and the quantities add up to what the RFQ requires.
+   - The AI reads the request and the quotations and turns the request into rules (split allowed, every vendor supplies at least one item, vendors left out, a limit on the number of vendors, an item fixed to a vendor, whether lines still under review are used). The application then finds the cheapest purchase that keeps the rules and calculates every figure. The AI never calculates, and the rules it understood are shown so a misreading is visible. If the rules cannot all be met, the proposal says which could not be kept and why.
+   - Vendors and lines the buyer excluded in Review are left out. A follow-up request ("now at most three vendors") updates the previous rules. Each proposal shows how far it is above the cheapest possible total (the cost of the rules) and how it compares with the best single vendor.
+   - When a request asks for something the quotations cannot answer (delivery speed, supplier reputation), the analyst says so. It presents a proposal for the buyer's consideration and never issues an award or purchase decision.
 
 9. **Make the procurement decision**
-   - The procurement manager reviews the item matches, quotation coverage, price comparisons, exceptions, and hybrid calculation.
+   - The procurement manager reviews the item matches, quotation coverage, price comparisons, exceptions, and the proposal.
    - The user retains responsibility for validating technical suitability, resolving commercial ambiguities, and making the final sourcing or award decision.
-   - The MVP ends with the comparison and recommendation available for review. It does not send RFQs to vendors, negotiate, create purchase orders, execute awards, or integrate with external ERP or vendor-portal systems.
+   - The MVP ends with the comparison and proposal available for review on screen. It does not send RFQs to vendors, negotiate, create purchase orders, execute awards, produce downloads of the analysis, or integrate with external ERP or vendor-portal systems.
 
-**Expected outcome:** A transparent quotation assessment linked to the selected RFQ, with structured vendor comparisons, clear coverage and exception reporting, traceable evidence, an indicative lowest-cost hybrid combination where comparable data supports one, and an analyst that answers follow-up and what-if questions from the same data. The system must communicate when the available information is insufficient for a reliable comparison.
+**Expected outcome:** A transparent quotation assessment linked to the selected RFQ, with structured vendor comparisons, clear coverage and exception reporting, traceable evidence, and a Purchase Proposal that the analyst builds from a plain-language request, with split purchases allowed where the buyer asks for them. The system must communicate when the available information is insufficient for a reliable comparison.
 
 ## 4. MVP Scope and Constraints
 
@@ -365,5 +363,9 @@ Vendor file (xlsx, csv, tsv, docx, pdf)
 
 **Limits.** Very large files are read in chunks; scanned images are sent natively but were not part of the test set; currency conversion and the cheapest-combination calculation come in the next workflow.
 
-**Workflow 3 (planned).** The tool-using analyst follows the same principles and will be documented here when built.
+### 5.7 Workflow 3: The analyst and the Purchase Proposal (as built and tested live)
+
+One model call per request. The model receives the RFQ, every eligible offer (already converted to one currency, before tax), the two summaries, the previous rules and recent turns, and returns **rules** plus a short reply with no figures. Code validates the rules against real ids, solves for the cheapest purchase that keeps them (whole units, splits allowed only when asked, vendor capacity and minimum orders respected), computes every figure, and writes the rule report from the actual result. Impossible rules are dropped and reported, never faked.
+
+Measured on the five sample quotations: about 1.5 seconds per request with the light model (about 13 seconds with the larger model, identical rules), 15 live calls in total for building and testing. "Every responder" gave a total only a few rupees above the cheapest possible, and exactly the sum of the smallest price differences needed to give each vendor an item; "split purchases, cheapest" gave the unconstrained cheapest; pinned items raised the total by exactly the price differences; an unsupported request was declined; an instruction placed inside a request changed nothing.
 

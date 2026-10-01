@@ -121,3 +121,26 @@ class WireLineMatch(BaseModel):
 
 class WireMatchResult(BaseModel):
     matches: list[WireLineMatch]
+
+
+class WirePin(BaseModel):
+    item: str                          # an item id from the data, such as "I3"
+    vendor: str                        # a vendor id from the data, such as "V2"
+    quantity: int | None = None        # leave out for the whole required quantity
+
+
+class WireProposal(BaseModel):
+    """G5: the buyer's request read as rules. The model never writes a figure; code computes every number."""
+
+    reply: str = Field(description="one to three plain sentences about what you understood; no figures")
+    allow_split: bool
+    every_vendor_supplies: bool
+    min_items_per_vendor: int | None = None
+    require_vendors: list[str] | None = None
+    leave_out_vendors: list[str] | None = None
+    max_vendors: int | None = None
+    pins: list[WirePin] | None = None
+    include_flagged: bool
+    assume_rfq_unit: bool
+    unsupported: str | None = Field(default=None, description="why the request cannot be answered from the quotations")
+    clarifying_question: str | None = None

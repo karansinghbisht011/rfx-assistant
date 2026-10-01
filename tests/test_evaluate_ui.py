@@ -118,3 +118,81 @@ def test_live_feed_shows_found_lines_and_counts():
     page = al.render_html([f], [])
     assert "6 lines found" in page and "Item 5 &lt;b&gt; · 2 Nos · INR 100" in page
     assert "Item 0" not in page            # only the latest few are shown
+
+
+def _analysed(monkeypatch, step):
+    from app.services import fx
+    monkeypatch.setattr(fx, "fetch_rates", lambda currencies, base=None: {})
+    client = ScriptedGemini(standard_wire())
+    at = evaluate_app(client, analysing=[("a.xlsx", make_xlsx(standard_rows()))])
+    at.session_state["eval_step"] = step
+    return at.run()
+
+
+def test_next_on_the_review_step_opens_compare(monkeypatch):
+    at = _analysed(monkeypatch, 3)
+    nxt = [b for b in at.button if b.key == "step-next"][0]
+    assert not nxt.disabled
+    nxt.click()
+    at.run()
+    text = shown(at)
+    assert not at.exception and at.session_state["eval_step"] == 4
+    for part in ("Purchase Proposal", "Ask the analyst for a purchase proposal", "Lowest offer for each item", "Vendor totals"):
+        assert part in text
+    assert "Centrifugal pumps" in text and "47,800.00" in text
+    assert text.index("Purchase Proposal") < text.index("Lowest offer for each item") < text.index("Vendor totals")
+
+
+def test_compare_has_no_assumption_controls_and_the_step_bar_has_four_steps(monkeypatch):
+    at = _analysed(monkeypatch, 4)
+    assert not at.exception
+    assert not any("Assumptions" in e.label for e in at.expander) and not at.toggle and not at.multiselect
+    text = shown(at)
+    assert "Compare" in text and ">Ask<" not in text and text.count("class='step ") == 4
+
+
+def chat_text(at) -> str:
+    return " ".join(md.value for message in at.chat_message for md in message.markdown)
+
+
+def _compare_with(monkeypatch, proposals, **kw):
+    from app.services import fx
+    monkeypatch.setattr(fx, "fetch_rates", lambda currencies, base=None: {})
+    client = ScriptedGemini(standard_wire(), proposals=proposals, **kw)
+    at = evaluate_app(client, analysing=[("a.xlsx", make_xlsx(standard_rows()))])
+    at.session_state["eval_step"] = 4
+    return at.run(), client
+
+
+def test_a_request_produces_a_proposal_above_the_summaries(monkeypatch):
+    from tests.quote_fixtures import wire_rules
+    at, client = _compare_with(monkeypatch, [wire_rules("I will build the cheapest purchase.", allow_split=True)])
+    at.chat_input(key="analyst-input").set_value("Make me a purchase summary allowing split purchases").run()
+    assert not at.exception and client.propose_calls == 1
+    text = shown(at)
+    assert "Grand total" in text and "I will build the cheapest purchase." in chat_text(at)
+    assert "Split purchases allowed" in text and "Earlier proposals" not in text
+    turns = at.session_state["analyst_turns"]
+    assert len(turns) == 1 and turns[0].proposal.grand_total is not None
+    at.chat_input(key="analyst-input").set_value("Now again").run()
+    assert "Earlier proposals (1)" in " ".join(e.label for e in at.expander)
+
+
+def test_the_analyst_offers_no_suggestions_and_the_lowest_offers_show_a_total(monkeypatch):
+    at = _analysed(monkeypatch, 4)
+    text = shown(at)
+    assert not [b for b in at.button if b.key.startswith("ex-")] and "Try one of these" not in text
+    assert "Total of the lowest offers" in text
+
+
+def test_the_analyst_is_disabled_without_a_key_and_failures_are_readable(monkeypatch):
+    from app.services.gemini_client import MockGemini, RateLimited
+    from tests.quote_fixtures import wire_rules
+    at, client = _compare_with(monkeypatch, [wire_rules()])
+    at.session_state["analyst_turns"] = []
+    resources.client = lambda: MockGemini()
+    at.run()
+    assert at.chat_input(key="analyst-input").disabled
+    at2, _ = _compare_with(monkeypatch, [wire_rules()], propose_error=RateLimited("x"))
+    at2.chat_input(key="analyst-input").set_value("cheapest").run()
+    assert not at2.exception and "busy" in chat_text(at2)

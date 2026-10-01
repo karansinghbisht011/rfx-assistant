@@ -1,6 +1,7 @@
 """Central settings. Model IDs, limits and thresholds live here, not in UI code."""
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,7 +20,8 @@ COUNT_UNITS = ("Nos", "Set", "Pair", "Kit", "Box", "Pack", "Roll", "Drum")
 # Gemini. Model IDs are deliberately not hardcoded: set them in .env once the API key exists
 # and current model availability, limits and pricing have been checked.
 MODEL_LITE = os.getenv("GEMINI_MODEL_LITE", "")      # G1, G2, G4
-MODEL_EXTRACT = os.getenv("GEMINI_MODEL_EXTRACT", "")  # G3, G5
+MODEL_EXTRACT = os.getenv("GEMINI_MODEL_EXTRACT", "")  # G3
+MODEL_ANALYST = os.getenv("GEMINI_MODEL_ANALYST", "")  # G5; falls back to the extraction model
 GENERATION_TEMPERATURE = 0.1  # check the selected model's guidance before pinning
 API_TIMEOUT_SECONDS = 90
 MAX_RETRIES = 1  # one retry for transient server errors; rate limits are never retried blindly
@@ -52,6 +54,19 @@ MATCH_LINE_LOW = 55           # an AI "matched" below this word similarity is do
 QUOTE_CALL_SPACING_SECONDS = 1.5  # pause between files when they are read one after another
 QUOTE_CONCURRENCY = 2             # files read at the same time; kept low so a free-tier rate limit is not hit
 PRICE_TOLERANCE = 0.01        # relative tolerance for quantity x price = total
+
+# Comparison and currency
+COMPARISON_CURRENCY = "INR"
+FX_URL = "https://api.frankfurter.dev/v1/latest"   # ECB reference rates, free, no key
+FX_TIMEOUT_SECONDS = 8
+FX_SANITY_BAND = (Decimal("0.0001"), Decimal("100000"))   # a rate outside this is refused
+
+# Analyst (G5)
+ANALYST_MAX_QUESTION_CHARS = 1000
+ANALYST_HISTORY_TURNS = 4          # earlier turns sent with a request
+ANALYST_CONTEXT_MAX_CHARS = 60000  # the structured data sent with a request is trimmed to this
+ANALYST_PROPOSALS_KEPT = 6         # proposals kept in the session list
+SOLVER_TIME_LIMIT_SECONDS = 10
 
 # Price outlier check: flag prices beyond this multiple of the median of other vendors
 PRICE_OUTLIER_FACTOR = 10

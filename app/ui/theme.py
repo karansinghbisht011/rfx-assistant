@@ -220,6 +220,41 @@ h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .step-line {{ height: 2px; width: 22px; background: #E3DED3; border-radius: 2px; }}
 .step-line-done {{ background: {TEAL}; }}
 
+/* Compare page */
+.sec-h {{ display: flex; align-items: stretch; gap: 0.7rem; margin: 1.5rem 0 0.7rem; }}
+.sec-bar {{ width: 5px; border-radius: 4px; background: linear-gradient(180deg, {TEAL}, {SAFFRON}); }}
+.sec-t {{ font-size: 1.2rem; font-weight: 700; color: {INK}; letter-spacing: -0.01em; }}
+.sec-s {{ font-size: 0.85rem; color: #6B7385; margin-top: 0.1rem; }}
+.vdot {{ display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.45rem; vertical-align: middle; }}
+.pp-card {{ border-radius: 16px; padding: 1.1rem 1.3rem; margin-bottom: 0.7rem; color: #fff;
+  background: linear-gradient(135deg, {INK} 0%, #1F4A5C 55%, {TEAL} 100%); box-shadow: 0 10px 28px rgba(27,42,65,0.22); }}
+.pp-top {{ display: flex; justify-content: space-between; gap: 1.2rem; align-items: flex-start; }}
+.pp-label {{ font-size: 0.74rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.8; font-weight: 600; }}
+.pp-total {{ font-size: 2.3rem; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }}
+.pp-sub {{ font-size: 0.88rem; opacity: 0.85; }}
+.pp-ask {{ max-width: 46%; font-size: 0.88rem; font-style: italic; opacity: 0.9; text-align: right; }}
+.pp-chips {{ display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.8rem 0 0.4rem; }}
+.pp-chip {{ font-size: 0.8rem; padding: 0.2rem 0.65rem; border-radius: 999px; background: rgba(255,255,255,0.16); color: #fff; font-weight: 600; }}
+.pp-chip.pp-good {{ background: #DDF4E4; color: #17803D; }} .pp-chip.pp-warn {{ background: #FFF0D6; color: #B25E09; }}
+.pp-rules {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem; }}
+.pp-rule {{ font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; }}
+.pp-rule small {{ display: block; opacity: 0.8; font-size: 0.72rem; }}
+.pp-unmet {{ background: #FFF0D6; color: #8A4B06; }}
+.pp-empty {{ background: linear-gradient(135deg, #FFFFFF 0%, #F2EDE2 100%); color: {INK}; border: 1px dashed #D9D2C3; box-shadow: none; }}
+.pp-empty .pp-label {{ color: {TEAL}; opacity: 1; }} .pp-empty-t {{ font-size: 1.25rem; font-weight: 700; margin: 0.2rem 0 0.3rem; }}
+table.pp-table {{ border-collapse: collapse; width: 100%; font-size: 0.88rem; }}
+table.pp-table th {{ background: #F6F3EC; text-align: left; padding: 0.55rem 0.7rem; font-weight: 600; border-bottom: 1px solid {BORDER}; }}
+table.pp-table td {{ padding: 0.5rem 0.7rem; border-bottom: 1px solid #F0ECE3; vertical-align: top; }}
+table.pp-table tr.pp-first td {{ border-top: 1px solid {BORDER}; }}
+table.pp-table .pp-num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+table.pp-table td small {{ display: block; color: #6B7385; font-size: 0.74rem; }}
+table.matrix tr.pp-sum td, table.pp-table tr.pp-sum td {{ background: #F2FAF8; font-weight: 700; font-size: 0.98rem; border-top: 2px solid {TEAL}; }}
+.pp-split {{ margin-left: 0.4rem; font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 6px; background: #EFE6FA; color: #5B2F91; font-weight: 700; text-transform: uppercase; }}
+.chat-working {{ border-radius: 12px; padding: 0.7rem 0.9rem; background: #F2FAF8; border: 1px solid #CFE7E3; animation: glow 1.6s ease-in-out infinite; }}
+.chat-working .an-bar {{ margin: 0.5rem 0 0.2rem; }}
+.chat-chip {{ display: inline-block; font-size: 0.74rem; padding: 0.1rem 0.5rem; margin: 0.15rem 0.2rem 0 0; border-radius: 8px; }}
+.chat-chip.met {{ background: #DDF4E4; color: #17803D; }} .chat-chip.unmet {{ background: #FFF0D6; color: #B25E09; }}
+
 /* Analysing screen */
 [class*="st-key-card-analysing"] {{ border-left: 4px solid {TEAL}; padding: 1.2rem 1.5rem; }}
 .an-head {{ display: flex; justify-content: space-between; align-items: baseline; }}

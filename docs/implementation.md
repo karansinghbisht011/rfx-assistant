@@ -13,9 +13,9 @@ The initial domain context is MRO procurement for refinery and process-plant env
 
 ### MVP boundaries
 
-**Included:** natural-language RFQ drafting; catalogue-backed item suggestions; clarification; editable line items; RFQ PDF export; session-only RFQ storage; multiple quotation uploads; document parsing; AI-assisted extraction and matching; deterministic price/currency comparison; a Review summary of every flagged item; a tool-using analyst for plain-language questions and what-if analysis; analysis PDF export; basic Streamlit deployment.
+**Included:** natural-language RFQ drafting; catalogue-backed item suggestions; clarification; editable line items; RFQ PDF export; session-only RFQ storage; multiple quotation uploads; document parsing; AI-assisted extraction and matching; deterministic price/currency comparison; a Review summary of every flagged item; an analyst that turns a plain-language request into a Purchase Proposal (cheapest purchase under the buyer's rules, split purchases allowed), calculated by code; basic Streamlit deployment.
 
-**Excluded:** accounts, roles, approvals, durable database storage, persistent history, supplier portals, ERP integrations, purchase-order issuance, autonomous supplier communication or award decisions, voice input, paid/always-on production hosting, vector databases, agent frameworks (the analyst is a small tool-calling loop in our own code), image and legacy `.doc`/`.xls` uploads, and email ingestion (an emailed quotation is supplied as a `.docx`).
+**Excluded:** accounts, roles, approvals, durable database storage, persistent history, supplier portals, ERP integrations, purchase-order issuance, autonomous supplier communication or award decisions, voice input, paid/always-on production hosting, vector databases, agent frameworks (the analyst is one structured model call plus an exact solver in our own code), downloads of the analysis (no analysis PDF or export), image and legacy `.doc`/`.xls` uploads, and email ingestion (an emailed quotation is supplied as a `.docx`).
 
 ### Principles
 
@@ -72,8 +72,8 @@ Streamlit Community Cloud for basic demo hosting.
 | Quote matching | Map quote lines to RFQ items | Code first; G4 only for lines code cannot match confidently. |
 | Verifiers | Check parsed files and every Gemini output; produce Review flags | Pure functions, unit-tested (section 13). |
 | Comparison engine | Calculate prices and scenarios | Deterministic Python; no LLM arithmetic/ranking. |
-| Analyst service | Tool-using Q&A and what-if analysis (G5) | Allowlisted read-only tools over computed analysis; figures come from code. |
-| PDF service | Generate RFQ and analysis PDFs | Static mock buyer/company details. |
+| Analyst service | Reads a request as rules (G5) and builds the Purchase Proposal | The model sets rules from enums and ids only; the allocation solver and every figure are code. |
+| PDF service | Generate the RFQ PDF | Static mock buyer/company details. |
 | Session store | Hold current-session RFQs and analysis | Streamlit session state and temporary files only. |
 
 ### Repository structure
@@ -94,8 +94,9 @@ RFx Assistant/
 │   │   ├── quote_extraction.py
 │   │   ├── quote_matching.py
 │   │   ├── verifiers.py
-│   │   ├── comparison_engine.py
-│   │   ├── analyst_tools.py
+│   │   ├── comparison.py
+│   │   ├── fx.py
+│   │   ├── allocation.py
 │   │   ├── analyst_service.py
 │   │   └── pdf_service.py
 │   ├── prompts/{rfq_parse.md,catalogue_resolve.md,quote_extraction.md,quote_matching.md,analyst.md}
@@ -131,13 +132,13 @@ Keep prompts, parsing, calculations, verifiers, and UI independently testable.
 | Tests | pytest | Unit, integration, and workflow coverage. |
 | Hosting/source control | Streamlit Community Cloud; Git/GitHub | Basic demo deployment and version control. |
 
-No agent framework, vector DB, or paid infrastructure. The analyst's tool-calling loop is written directly against `google-genai`.
+No agent framework, vector DB, or paid infrastructure. The analyst is one structured `google-genai` call; the purchase optimisation uses `scipy.optimize.milp` (HiGHS), the one numeric dependency, chosen over hand-written search for exactness with split quantities, minimum shares and vendor limits.
 
 ## 4. Configuration, Secrets, and Gemini
 
 ### Configuration
 
-Centralize settings in `src/config.py`: model ID, generation parameters, token/time limits, upload limits, catalogue path, supported extensions, exchange-rate provider/timeout, PDF settings, matching thresholds, and analyst limits (tool rounds, session call cap). Do not scatter model IDs or thresholds through UI code.
+Centralize settings in `src/config.py`: model ID, generation parameters, token/time limits, upload limits, catalogue path, supported extensions, exchange-rate provider/timeout, PDF settings, matching thresholds, and analyst limits (question length, history, context size, session call cap). Do not scatter model IDs or thresholds through UI code.
 
 ### API credentials
 
@@ -325,11 +326,11 @@ Provide a session-only list, newest first, with summary tiles (RFQs saved, line 
 6. Buyer reviews the Review summary and confirms vendor identity, quotation reference/revision, and flagged lines or mappings.
 7. Buyer selects one version per vendor.
 8. Deterministic code calculates eligible item comparisons and indicative sourcing scenarios.
-9. Show comparisons, the Review summary, and the analyst panel; enable analysis PDF download.
+9. Show the Compare step: the Purchase Proposal and the analyst chat, the lowest offer per item, and vendor totals. There is no analysis download.
 
 ### Guided steps (built)
 
-The step bar, upload with a live analysis screen, and the review step (alignment matrix, per-vendor flags, Accept and Exclude) are built; Compare and Ask are shown locked until Phase 5. Files are read one after another with a short pause so a free-tier rate limit is not hit; a file that hits a rate limit is kept and can be retried without being re-uploaded. The design below is the original plan.
+The step bar (Select RFQ, Upload, Review, Compare), upload with a live analysis screen, the review step (alignment matrix, per-vendor flags, Accept and Exclude), and the Compare step with the analyst are built. Files are read one after another with a short pause so a free-tier rate limit is not hit; a file that hits a rate limit is kept and can be retried without being re-uploaded. The design below is the original plan.
 
 Evaluate Quotations is presented as five steps on one page, with a step bar (done, active, upcoming), Back and Next buttons, and progress kept in session state: **Select RFQ**, **Upload**, **Review**, **Compare**, **Ask**. Each step unlocks when the one before it is complete: Upload needs a selected RFQ, Review needs at least one parsed quotation, Compare needs every quotation validated or its flags resolved, and Ask needs a computed analysis. A locked step shows a one-line reason instead of its content. Arriving from Manage's **Select for evaluation** lands on Upload with the RFQ already chosen. The step bar is a reusable component (`app/ui/stepper.py`), built in Phases 4 and 5 with the steps themselves.
 
@@ -394,9 +395,7 @@ For the indicative hybrid scenario, allocate each RFQ line to the vendor with th
 
 Show vendors processed, quotations requiring review, item-level lowest eligible prices, side-by-side comparisons, single-vendor and hybrid scenarios, missing/extra/unmatched lines, specification deviations, uncertainty, exclusions, and currency-rate evidence.
 
-The analyst panel (G5, section 12) answers questions using only tool results computed from the selected RFQ, validated quotations, and the engine. It provides file, page, sheet, and row evidence on request, distinguishes source facts from calculations, states assumptions and caveats, says when data is insufficient, and never issues an award decision.
-
-The analysis PDF should include RFQ identity, analysis timestamp, selected vendor revisions, item-level comparison, both scenarios, currency rates/source/timestamps, the Review summary, exceptions, assumptions, and a note that the output is decision support and the buyer retains award authority.
+The Compare step is two columns. The left column shows the **Purchase Proposal** (or an empty state with example requests), then **Lowest offer for each item** and **Vendor totals**, then a collapsed list of lines left out of the comparison and a small exchange-rate panel. The right column is the analyst chat. There is no assumptions panel: assumptions are rules the analyst sets from the buyer's request and shows back. The analysis has no download.
 
 ## 12. Gemini Call Specifications
 
@@ -408,9 +407,9 @@ Gemini is called at five points. Every call has one job, a small schema, and a v
 | G2 | Catalogue resolve | Each unresolved item plus its shortlist of up to 8 catalogue candidates | One choice from the shortlist, or null with a question | Low-cost | Once per request, batched; skipped for items the application resolves on its own |
 | G3 | Quote extraction | One vendor file, parsed with row references | Vendor metadata, quote lines (verbatim text values), charges | Mid (Flash class; multimodal) | Once per file |
 | G4 | Quote-to-RFQ matching | The RFQ items and the vendor lines code could not match confidently (text only) | A mapping with status, reason, and visible differences | Low-cost | Only when needed, batched per vendor; re-run if the buyer edits lines |
-| G5 | Analyst | The buyer's question, a compact analysis snapshot, and tool results | Tool calls, then an answer template with placeholders and display objects | Mid (Flash class with reliable function calling) | 2 to 4 calls per question |
+| G5 | Analyst | The buyer's request, the RFQ, every offer as structured data, the two summaries, the previous rules, and recent turns | Rules (`ProposalSpec`) and a short figure-free reply | Lite (measured: about 1.5 s against 13 s for Flash, with identical rules) | 1 call per request, plus one retry when an id is invalid |
 
-Model IDs, generation settings, and per-session call limits live in `src/config.py` as `MODEL_LITE`, `MODEL_EXTRACT`, and `MAX_CALLS_PER_SESSION`. Verify current model IDs, free-tier rate limits, and structured-output support when the key is created. A typical session is at most 2 calls for the RFQ, 1 per vendor for extraction plus a matching call only when code cannot match lines confidently, and 2 to 4 per analyst question. Free-tier rate limits are handled with backoff and the session call cap.
+Model IDs, generation settings, and per-session call limits live in `src/config.py` as `MODEL_LITE`, `MODEL_EXTRACT`, `MODEL_ANALYST`, and `MAX_CALLS_PER_SESSION`. Verify current model IDs, free-tier rate limits, and structured-output support when the key is created. A typical session is at most 2 calls for the RFQ, 1 per vendor for extraction plus a matching call only when code cannot match lines confidently, and 1 per analyst request. Free-tier rate limits are handled with backoff and the session call cap.
 
 ### Practices common to all calls
 
@@ -543,62 +542,38 @@ class MatchResult(BaseModel):
 
 Prompt rules: `matched` means the same product type with no visible difference; if the quoted description names a size, rating, material, or make that differs from the RFQ item's original wording, use `possible` and list the differences; `extra` is for real quoted products that are not on the RFQ; never choose an RFQ item because it is the only one left; one line maps to at most one RFQ item.
 
-### G5 — Analyst (tool-using Q&A)
+### G5 — Analyst (Purchase Proposal)
 
-Purpose: let the buyer ask anything about the comparison in plain language, including what-if questions, and get text, tables, charts, and exports, with every figure coming from code. The model chooses which function to run and with what inputs; code runs it; the UI renders the result. The model never computes, sorts, or converts.
+Purpose: turn the buyer's plain-language request into a Purchase Proposal. The model reads language; code does all arithmetic and optimisation.
 
-**Turn loop** (a manual `google-genai` function-calling loop in `analyst_service.py`):
-1. Build the context pack (below) and call Gemini with the tool declarations.
-2. For each tool call, validate the arguments with Pydantic, run the function, and return the result JSON (with a `result_id` and a `caveats` list). A tool error is returned to the model once for self-correction.
-3. Repeat up to `MAX_TOOL_ROUNDS` (4).
-4. The final message is an answer template with placeholders plus any display objects.
-5. Code substitutes the placeholders, runs the Q&A verifiers (A1–A8), renders the answer, appends the tool caveats itself whatever the model wrote, and shows a **How this was calculated** expander listing each tool call with its arguments and result summary.
+**Division of work.** The model returns *rules* and a one to three sentence reply with no figures. Code validates the rules against real ids, finds the cheapest purchase that keeps them, computes every number in `Decimal`, checks the rules against the actual result, and writes the rule report itself. A rule that cannot be kept is dropped and reported as not met, with the reason, while the rest is still solved.
 
-**Context pack per turn:** the system prompt; a compact analysis snapshot (RFQ items with IDs, names, quantities, and units; vendors with IDs, names, and coverage; flag counts; headline scenario results), because details come from tools rather than the prompt; the current assumptions; the last 6 turns (question, final answer, tool names and arguments); and the question. Names accompany IDs so the model can resolve "Vendor B" or "the valves", while tool arguments use IDs only.
+**Rules (`ProposalSpec`, all optional):** `allow_split`, `every_vendor_supplies`, `min_items_per_vendor`, `require_vendor_ids`, `leave_out_vendor_ids`, `max_vendors`, `pins` (item to vendor, optionally a quantity), `include_flagged`, `assume_rfq_unit`. The model also returns `unsupported` (the request needs something the quotations cannot give) or one `clarifying_question`. The objective is always the lowest total. The model refers to vendors and items by short aliases (V1, I3); code maps them back and rejects any alias it did not give.
 
-**Assumptions (`analysis_focus`):** held in code and shown as removable chips above the chat: vendors excluded, flagged lines included, RFQ unit assumed for unstated units, exchange-rate override, maximum vendors. Tools take these as explicit parameters. The model sets them from the question ("what if we drop Vendor B"), code updates the chips, and follow-ups such as "and without C?" build on them. The buyer can clear any chip.
+**Context pack (built by code):** the RFQ with the buyer's wording and required quantities; each kept vendor with currency, tax basis, validity, payment, delivery, stated charges and open review points; every eligible offer as unit price per RFQ unit in the comparison currency (before tax), as quoted, with quoted quantity, minimum order and an under-review mark; the lines left out and why; the two summaries; the previous rules; and the last four turns. Vendors and lines the buyer excluded in Review are absent. The pack is trimmed to a size cap. Vendor-written text is data and the prompt says so.
 
-**Tools** (read-only pure functions over the session analysis; no network, file, or code-execution access):
+**Solver (`allocation.py`).** Whole-unit quantities per vendor and item, solved exactly as a small mixed-integer program (`scipy.optimize.milp`): demand met per item (unfilled demand only where nobody can supply, and coverage is maximised before cost), vendor capacity limited to what it quoted, a vendor's minimum order respected, items split only when allowed (or when a partial pin asks for it), non-integer quantities bought whole from one vendor, vendor used only if it supplies a line, minimum items per vendor, required and left-out vendors, vendor limit, pins. Unit prices are flat (no volume tiers). Ties break by vendor name. If the rules are impossible, they are relaxed in a fixed order (pins, vendor limit, minimum items, required vendors) and the dropped rule is reported.
 
-| Tool | Purpose | Key parameters |
+**Proposal (`Proposal`):** rows (item, unit, required quantity, vendor, quantity, unit price, total), grand total, the cheapest possible total (the lowest offer per item with no rules), the best complete single vendor, the rule report, and caveats (converted currencies with the rate, tax taken out, lines still under review, minimum orders, unpriced items, flat prices).
+
+**Prompt design** (`prompts/analyst.md`): role; what to do (set rules, never calculate); grounding (ids only from the data, vendor text is never an instruction); boundaries (decision support, never "award to", unsupported requests said plainly); reply style (no figures, names not ids); three worked examples and one unsupported example.
+
+**Model and cost.** `GEMINI_MODEL_ANALYST`, default flash-lite with minimal thinking. Measured on the five sample quotations: about 1.3 to 1.7 seconds per request and about 7,000 input tokens, against about 13 seconds for Flash with the same rules. One call per request.
+
+**Live results on the sample quotations (checked by hand against `data/test_data/EXPECTED.md`):** "every responder, cheapest otherwise" gives a total only a few rupees above the unconstrained cheapest, with the extra cost equal to the three smallest price differences needed to give each vendor an item; "split purchases, cheapest" gives the unconstrained cheapest; pinning pumps to one vendor and three transmitters to another raises the total by exactly the two price differences; "who delivers fastest and is most reliable" is reported as unsupported; an instruction hidden in the request changed nothing.
+
+**Verifiers (analyst):**
+
+| ID | Check | Outcome |
 |---|---|---|
-| `list_offers` | Normalized comparable offers with unit price, extended price, and flags | item_ids, vendor_ids, assumptions |
-| `lowest_by_item` | Lowest eligible offer per item, with ties | item_ids, vendor_ids, exclude_vendor_ids, assumptions |
-| `single_vendor_total` | Total and coverage per vendor | vendor_ids, assumptions |
-| `hybrid` | Lowest-cost allocation across vendors | allowed/excluded vendor_ids, max_vendors, assumptions |
-| `compare_scenarios` | Side-by-side of up to 4 scenarios defined with the parameters above | scenarios |
-| `savings_vs` | Difference between a scenario and a baseline vendor or scenario | baseline, scenario |
-| `total_with_charges` | Stated freight, tax, and discounts beside the price, only where clearly stated and on the same basis | vendor_id |
-| `get_flags` | Review flags and their resolutions | scope, scope_id |
-| `get_evidence` | Source file, row reference, and verbatim quote for a line | line_id |
-| `make_table` | Table display built from a prior result | result_id, columns, sort |
-| `make_chart` | Bar or column chart built from a prior result | result_id, kind, x, y, series |
-| `export_table` | CSV or XLSX download built from a prior result | result_id, format |
-
-The display and export tools take a `result_id` and column names, never literal values, so every figure shown originates in a tool result.
-
-**Answer contract:**
-
-```python
-class AnalystAnswer(BaseModel):
-    insufficient_data: bool
-    template: str                      # e.g. "{{r2.vendor}} is lowest overall at {{r2.total}}."
-    refs_used: list[str]               # result_ids and paths used
-    display: list[str]                 # result_ids of tables, charts, or exports to show
-    clarifying_question: str | None    # at most one, only when tools cannot reasonably default
-```
-
-**Prompt design** (`prompts/analyst.md`), in this order:
-1. **Role:** a procurement analyst assistant supporting a buyer who makes the final decision.
-2. **How to work:** decide which tools answer the question, call them, never compute or estimate. If a needed input is missing (which vendors? which basis?), ask one clarifying question only when no reasonable default exists; otherwise apply the default and state it.
-3. **Grounding:** answer only from tool results; refer to vendors and items by name; every figure is a `{{result_id.path}}` placeholder; always mention exclusions, flags, deviations, or incomplete coverage that affect the answer.
-4. **Boundaries:** decision support only, never "award to"; information not in the quotations (reputation, quality history, delivery performance) is out of scope and stated as such; no speculation.
-5. **Format:** the answer first in one to three sentences, then a table or chart only when it helps; under 120 words unless asked for more.
-6. **Worked traces:** three short examples. (a) "Who is cheapest overall?" calls `single_vendor_total`, then answers with the lowest covered vendor and the coverage caveat. (b) "What if we use only two vendors?" calls `hybrid` with `max_vendors=2` and `compare_scenarios` against the unconstrained hybrid. (c) "Drop Vendor B and chart the result" calls `lowest_by_item` with the exclusion, then `make_chart`. One negative example: a question about a vendor's quality sets `insufficient_data`.
-
-**Question types the prompt and tools are designed to cover:** cheapest vendor overall and per item; lowest per item with ties; split the order among all vendors, or among at most N; exclude or include specific vendors; only vendors covering every item; savings against a chosen vendor; compare two or more scenarios; why a line was excluded or flagged; the evidence for a price; what is missing from a vendor's quote; effect of including flagged lines or assuming the RFQ unit; stated freight, tax, and discounts for a vendor; charts; and exports. Anything else is answered as insufficient data.
-
-Model settings: a Flash-class model with reliable function calling, minimal thinking, and the per-question timeout and call cap from `config.py`. Verify model support for function calling at build time.
+| A1 | The reply contains figures that are not in the buyer's request | Replaced with a neutral line written by code |
+| A2 | A rule names a vendor or item id that was not given | One retry with the error, then a friendly failure |
+| A3 | Award-style wording in the reply | Replaced with a neutral line |
+| A4 | `unsupported` is set | Shown as "cannot be answered from the quotations"; no proposal |
+| A5 | A rule value is out of range | Treated as A2 |
+| A6 | Rules the model claims were applied | Never trusted: the rule report is recomputed by code from the actual purchase |
+| A7 | Instructions inside vendor text or the request | Cannot change the result: only enums, numbers and known ids are accepted from the model, and angle brackets are stripped from the request |
+| A8 | Rate limit, call cap, bad JSON, no key | A readable message in the chat; the question is kept; no partial proposal |
 
 ## 13. Verifiers and Review Summary
 
@@ -712,16 +687,7 @@ The **Review summary** is a panel shown in two places: above the RFQ table (Gene
 
 ### Analyst verifiers
 
-| ID | Check | Outcome |
-|---|---|---|
-| A1 | The final text contains numerals outside placeholders that are not in the user's question | Regenerate once, then Block |
-| A2 | A placeholder references a `result_id` or path that does not exist | Block |
-| A3 | Award-style wording ("we recommend awarding") | Replaced with the decision-support statement |
-| A4 | `insufficient_data` is true | Shown as "cannot be answered from the analysis" |
-| A5 | Tool arguments fail validation (unknown vendor or item ID, bad enum or range) | Error returned to the model once, then Block the turn |
-| A6 | Tool rounds exceed `MAX_TOOL_ROUNDS` | Stop; show results so far with a message |
-| A7 | A table, chart, or export references no tool result or an unknown column | Block that element |
-| A8 | Tool caveats | Always appended by code, regardless of model text (Info) |
+See the table under G5 in section 12.
 
 ## 14. User Interface and Design System
 
@@ -748,7 +714,7 @@ The shell is a slim top bar (logo and name on the left) with the three tabs dire
 
 **Manage RFQs:** session-only list, view/download/select actions, and empty state.
 
-**Evaluate Quotations:** RFQ selector, multi-file upload, per-file status/recovery, vendor/revision confirmation, extraction/mapping review, Review summary (overall and per vendor), comparison summary/table, exceptions, currency details, the analyst panel, and PDF download.
+**Evaluate Quotations:** RFQ selector, multi-file upload, per-file status/recovery, vendor/revision confirmation, extraction/mapping review, Review summary (overall and per vendor), the Compare step (Purchase Proposal, lowest offer per item, vendor totals, lines left out, exchange rates) with the analyst chat, and no download.
 
 **Analyst panel:** chat input, starter-question chips, assumption chips (removable), answers with inline tables and charts, a **How this was calculated** expander, and export buttons.
 
@@ -806,18 +772,18 @@ For recoverable failures, retain the maximum safe prior state and provide a clea
 
 - Keep credentials server-side; pin dependencies; do not commit secrets.
 - Do not execute model-generated code, shell commands, or arbitrary filesystem operations.
-- Keep tool use explicit, allowlisted, and application-controlled. The analyst's tools are read-only pure functions over session data, with no network, file, or code-execution access; exports are built only from tool results. The model cannot initiate external side effects.
+- The analyst's model call returns only rules made of enums, numbers and ids we supplied; code validates them and does all calculation. The model has no tools, no network, file, or code-execution access, and cannot initiate external side effects.
 - The MVP does not intentionally persist RFQs or quotes to a database. Hosting and API providers may have separate logging, retention, and processing terms; review them before using confidential procurement documents. Prefer synthetic/demo data for public demos unless real-data handling is approved.
 
 ## 17. Testing
 
 ### Unit tests
 
-Test catalogue loading/normalization/search and ambiguity; input validation and state transitions; Pydantic validation; malformed model output; every verifier in section 13; file validation and parsers; unit aliases and conversions; currency conversion; deterministic item pricing, sourcing scenarios, and the maximum-vendor search; the analyst tools and their argument validation; PDF contents; filename sanitization; and temporary-file cleanup.
+Test catalogue loading/normalization/search and ambiguity; input validation and state transitions; Pydantic validation; malformed model output; every verifier in section 13; file validation and parsers; unit aliases and conversions; currency conversion; deterministic item pricing, sourcing scenarios, and the maximum-vendor search; the allocation solver (against exhaustive search on small random cases), rule validation, and the analyst's reply and failure handling; the RFQ PDF contents; filename sanitization; and temporary-file cleanup.
 
 ### Integration tests
 
-Test RFQ input → Gemini → schema validation → catalogue search → clarification/edit → save; RFQ selection → multi-file upload → parsing → extraction → confirmation → comparison; the analyst loop (with a scripted fake Gemini); both PDF exports; and partial failure where an invalid file does not block valid files. Use mocked Gemini/rate responses for repeatable CI. Keep live API smoke tests separate and opt-in.
+Test RFQ input → Gemini → schema validation → catalogue search → clarification/edit → save; RFQ selection → multi-file upload → parsing → extraction → confirmation → comparison; the analyst request-to-proposal flow (with a scripted fake Gemini); the RFQ PDF export; and partial failure where an invalid file does not block valid files. Use mocked Gemini/rate responses for repeatable CI. Keep live API smoke tests separate and opt-in.
 
 ### Manual testing
 
@@ -832,8 +798,8 @@ There is no evaluation suite and no scheduled live-model testing; the free-tier 
 - Comparisons are deterministic and derived from validated data.
 - Currency rates include source/timestamp; failed conversions are safely excluded.
 - Analysis distinguishes eligible comparisons, exclusions, and indicative scenarios.
-- RFQ and analysis PDFs are downloadable.
-- The analyst answers what-if questions (exclude a vendor, limit vendor count, chart the result) with figures that originate in tool results.
+- The RFQ PDF is downloadable.
+- The analyst builds a Purchase Proposal from a plain-language request (split purchases, every vendor included, vendor limits, pinned items) with figures that all come from code.
 - Core unit and integration tests pass, including every verifier.
 - No API keys or confidential test documents are committed.
 
@@ -875,7 +841,7 @@ Confirm app availability, API key/model quota, catalogue load/version, one RFQ f
 | 2. Catalogue + RFQ | Catalogue search, units, G1/G2, editable table with Review summary, RFQ PDF | Buyer can complete/save/export RFQ; unmatched items are safely flagged. |
 | 3. RFQ management | Session list, view/download/select for evaluation | Saved RFQs work in-session; empty state and lifecycle notice work. |
 | 4. Ingestion + extraction | Parsers, G3 extraction, code-first matching with G4, Review summary, vendor/revision review | Multiple quotes process independently; invalid files do not block valid ones. |
-| 5. Comparison + analysis | Deterministic pricing, currency, scenarios, analyst tools and loop, analysis PDF | Results are reproducible, evidence-backed, and qualified. |
+| 5. Comparison + analyst (final build phase) | Deterministic pricing and currency, the Compare step, the analyst and its allocation solver | Results are reproducible, evidence-backed, and qualified; the analyst's rules are shown and checked by code. No analysis download. |
 | 6. Hardening + deployment | Security/resource controls, verifier tests, rate-limit handling, deployment | Demo-ready deployment; limitations documented; no secrets committed. |
 
 ## 20. Risks and Mitigations
@@ -904,8 +870,8 @@ Confirm app availability, API key/model quota, catalogue load/version, one RFQ f
 - Document parsers, with native Gemini reading for scanned PDFs.
 - Deterministic comparison and currency-normalization engine.
 - Verifiers and the Review summary.
-- Tool-using analyst with allowlisted tools.
-- RFQ and analysis PDF generation.
+- Analyst (rules from the model, allocation solver and every figure in code).
+- RFQ PDF generation.
 - Unit and integration tests (verifiers, tools, engine, units).
 - `.env.example`, dependency manifest, `.gitignore`, and setup/deployment README.
 - This implementation plan maintained alongside the PRD.
@@ -930,11 +896,11 @@ Confirm app availability, API key/model quota, catalogue load/version, one RFQ f
 - [ ] Currency conversions include rate source/timestamp; failed conversions are never guessed.
 - [ ] Comparisons distinguish eligible, excluded, incomplete, and uncertain data.
 - [ ] Single-vendor and hybrid scenarios are labeled indicative decision support.
-- [ ] The analyst answers from tool results only, and every figure originates in code.
+- [ ] The analyst sets rules only, and every figure in a proposal originates in code.
 - [ ] What-if questions (exclude a vendor, limit vendor count) work and show their assumptions.
 - [ ] The Review summary lists every flag; nothing is rejected for an unstated unit.
 - [ ] Suggested units are visibly marked and never applied silently.
-- [ ] RFQ and analysis PDFs are downloadable.
+- [ ] The RFQ PDF is downloadable.
 - [ ] Secrets are not committed or exposed to the client.
-- [ ] Tests cover the verifiers, analyst tools, comparison engine, and unit conversion.
+- [ ] Tests cover the verifiers, the allocation solver, the analyst service, the comparison engine, and unit conversion.
 - [ ] Deployment instructions and MVP limitations are documented.

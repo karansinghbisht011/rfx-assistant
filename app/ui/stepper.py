@@ -1,12 +1,12 @@
-"""Step bar for Evaluate Quotations: Select RFQ, Upload, Review, Compare, Ask."""
+"""Step bar for Evaluate Quotations: Select RFQ, Upload, Review, Compare (the analyst lives in Compare)."""
 
 from collections.abc import MutableMapping
 from typing import Any
 
 import streamlit as st
 
-STEPS = ("Select RFQ", "Upload", "Review", "Compare", "Ask")
-LIVE_STEPS = 3          # Compare and Ask arrive with the comparison engine and the analyst
+STEPS = ("Select RFQ", "Upload", "Review", "Compare")
+LIVE_STEPS = 4
 KEY = "eval_step"
 
 
